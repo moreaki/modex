@@ -5,6 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "modex",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14)
     ],
@@ -18,7 +19,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "modex",
-            dependencies: ["ModexCore"]
+            dependencies: ["ModexCore"],
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "modexTests",
