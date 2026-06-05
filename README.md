@@ -32,6 +32,13 @@ Start the menu bar monitor:
 swift run modex
 ```
 
+For normal macOS menu-bar use, package and open the app bundle:
+
+```bash
+scripts/package-app.sh
+open .build/Modex.app
+```
+
 The menu refreshes every 60 seconds.
 
 ## Notes
