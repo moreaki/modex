@@ -41,10 +41,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func refresh() {
         do {
             let summary = try scanner.summary()
-            statusItem.button?.title = title(for: summary)
+            if let button = statusItem.button {
+                button.image = ModexStatusIcon.make(contextUsagePercent: summary.contextUsagePercent)
+                button.imagePosition = .imageLeading
+                button.title = title(for: summary)
+                button.toolTip = tooltip(for: summary)
+            }
             configureMenu(summary: summary)
         } catch {
-            statusItem.button?.title = "Modex !"
+            if let button = statusItem.button {
+                button.image = ModexStatusIcon.make(contextUsagePercent: nil)
+                button.imagePosition = .imageLeading
+                button.title = "!"
+                button.toolTip = "Modex could not read Codex session data."
+            }
             configureMenu()
         }
     }
@@ -59,11 +69,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func title(for summary: ModexSummary) -> String {
         if let percent = summary.contextUsagePercent {
-            return "Modex \(Int(percent.rounded()))%"
+            return " \(Int(percent.rounded()))%"
         }
         if summary.totalTokens > 0 {
-            return "Modex \(summary.totalTokens.formatted(.number.notation(.compactName)))"
+            return " \(summary.totalTokens.formatted(.number.notation(.compactName)))"
         }
-        return "Modex"
+        return ""
+    }
+
+    private func tooltip(for summary: ModexSummary) -> String {
+        let context = summary.contextUsagePercent.map { "\(Int($0.rounded()))% context" } ?? "unknown context"
+        return "Modex: \(context), \(summary.medianTurnTokens.formatted()) median tokens/turn, \(summary.compactionEvents) compactions"
     }
 }
