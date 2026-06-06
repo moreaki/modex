@@ -703,7 +703,25 @@ private final class FastCodexJSONLParser {
            exitCode != 0
         {
             snapshot.failedCommandEvents += 1
+            if snapshot.failedCommandSummaries.count < 24 {
+                snapshot.failedCommandSummaries.append(
+                    CommandFailureSummary(
+                        timestamp: dateValue(after: FastJSONPattern.timestamp, in: line),
+                        commandName: sanitizedCommandName(
+                            FastJSONValue.stringArray(after: FastJSONPattern.command, in: line).first
+                        ),
+                        exitCode: exitCode
+                    )
+                )
+            }
         }
+    }
+
+    private func sanitizedCommandName(_ command: String?) -> String? {
+        guard let command, command.isEmpty == false else {
+            return nil
+        }
+        return URL(fileURLWithPath: command).lastPathComponent
     }
 
     private func rateLimits(_ line: Data.SubSequence) -> CodexRateLimits? {
@@ -860,6 +878,34 @@ private enum FastJSONValue {
             return false
         }
         return nil
+    }
+
+    static func stringArray(
+        after pattern: [UInt8],
+        in bytes: Data.SubSequence,
+        maximumCount: Int = 6
+    ) -> [String] {
+        guard let range = range(of: pattern, in: bytes) else {
+            return []
+        }
+
+        var values: [String] = []
+        var index = range.upperBound
+        while index < bytes.endIndex, values.count < maximumCount {
+            let byte = bytes[index]
+            if byte == FastJSONPattern.closeBracket {
+                break
+            }
+            if byte == FastJSONPattern.quote,
+               let value = jsonString(startingAt: bytes.index(after: index), in: bytes)
+            {
+                values.append(value)
+                index = skipString(startingAt: bytes.index(after: index), in: bytes) ?? bytes.index(after: index)
+                continue
+            }
+            index = bytes.index(after: index)
+        }
+        return values
     }
 
     static func iso8601Date(after pattern: [UInt8], in bytes: Data.SubSequence) -> Date? {
@@ -1097,6 +1143,26 @@ private enum FastJSONValue {
         return nil
     }
 
+    private static func skipString(
+        startingAt start: Data.SubSequence.Index,
+        in bytes: Data.SubSequence
+    ) -> Data.SubSequence.Index? {
+        var index = start
+        var escaping = false
+        while index < bytes.endIndex {
+            let byte = bytes[index]
+            if escaping {
+                escaping = false
+            } else if byte == FastJSONPattern.backslash {
+                escaping = true
+            } else if byte == FastJSONPattern.quote {
+                return bytes.index(after: index)
+            }
+            index = bytes.index(after: index)
+        }
+        return nil
+    }
+
     private static func appendEscapedByte(_ byte: UInt8, to output: inout [UInt8]) {
         switch byte {
         case FastJSONPattern.quote, FastJSONPattern.backslash, FastJSONPattern.slash:
@@ -1178,6 +1244,7 @@ private enum FastJSONPattern {
     static let nine: UInt8 = 57
     static let backslash: UInt8 = 92
     static let openBrace: UInt8 = 123
+    static let closeBracket: UInt8 = 93
     static let closeBrace: UInt8 = 125
     static let lowercaseB: UInt8 = 98
     static let lowercaseF: UInt8 = 102
@@ -1203,6 +1270,7 @@ private enum FastJSONPattern {
     static let durationMilliseconds = Array("\"duration_ms\":".utf8)
     static let timeToFirstTokenMilliseconds = Array("\"time_to_first_token_ms\":".utf8)
     static let exitCode = Array("\"exit_code\":".utf8)
+    static let command = Array("\"command\":[".utf8)
     static let changes = Array("\"changes\":{".utf8)
     static let lastTokenUsage = Array("\"last_token_usage\":{".utf8)
     static let totalTokenUsage = Array("\"total_token_usage\":{".utf8)

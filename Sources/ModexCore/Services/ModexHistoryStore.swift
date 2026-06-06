@@ -64,6 +64,149 @@ public final class ModexHistoryStore: @unchecked Sendable {
         )
     }
 
+    public func agentInsightResults(limit: Int = 200) throws -> [ModexAgentInsightResult] {
+        try readAgentInsights(from: "agent_insights", limit: limit)
+    }
+
+    public func agentInsightRuns(limit: Int = 200) throws -> [ModexAgentInsightResult] {
+        try readAgentInsights(from: "agent_insight_runs", limit: limit)
+    }
+
+    public func save(agentInsight result: ModexAgentInsightResult) throws {
+        try execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            try insertAgentInsightRun(result)
+            try upsertAgentInsightResult(result)
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    public func deleteAgentInsightResults() throws {
+        try execute("DELETE FROM agent_insight_runs;")
+        try execute("DELETE FROM agent_insights;")
+    }
+
+    private func readAgentInsights(
+        from tableName: String,
+        limit: Int
+    ) throws -> [ModexAgentInsightResult] {
+        let table = tableName == "agent_insight_runs"
+            ? "agent_insight_runs"
+            : "agent_insights"
+        return try read(
+            """
+            SELECT
+                source_insight_id,
+                source_fingerprint,
+                generated_at,
+                provider,
+                title,
+                summary,
+                category,
+                severity,
+                confidence,
+                suggested_action,
+                evidence_ids_json
+            FROM \(table)
+            ORDER BY generated_at DESC
+            LIMIT ?;
+            """,
+            limit: limit
+        ) { statement in
+            let evidenceJSON = text(statement, 10) ?? "[]"
+            let evidenceIDs = (try? JSONDecoder().decode(
+                [String].self,
+                from: Data(evidenceJSON.utf8)
+            )) ?? []
+            return ModexAgentInsightResult(
+                sourceInsightID: text(statement, 0) ?? "",
+                sourceFingerprint: text(statement, 1) ?? "",
+                generatedAt: date(statement, 2) ?? .distantPast,
+                provider: text(statement, 3) ?? "",
+                title: text(statement, 4) ?? "",
+                summary: text(statement, 5) ?? "",
+                category: text(statement, 6) ?? "",
+                severity: text(statement, 7) ?? "",
+                confidence: sqlite3_column_double(statement, 8),
+                suggestedAction: text(statement, 9) ?? "",
+                evidenceIDs: evidenceIDs
+            )
+        }
+    }
+
+    private func insertAgentInsightRun(_ result: ModexAgentInsightResult) throws {
+        let evidenceData = try JSONEncoder().encode(result.evidenceIDs)
+        let evidenceJSON = String(decoding: evidenceData, as: UTF8.self)
+        try withStatement(
+            """
+            INSERT INTO agent_insight_runs (
+                source_insight_id,
+                source_fingerprint,
+                generated_at,
+                provider,
+                title,
+                summary,
+                category,
+                severity,
+                confidence,
+                suggested_action,
+                evidence_ids_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            bind(result.sourceInsightID, to: statement, at: 1)
+            bind(result.sourceFingerprint, to: statement, at: 2)
+            bind(result.generatedAt, to: statement, at: 3)
+            bind(result.provider, to: statement, at: 4)
+            bind(result.title, to: statement, at: 5)
+            bind(result.summary, to: statement, at: 6)
+            bind(result.category, to: statement, at: 7)
+            bind(result.severity, to: statement, at: 8)
+            bind(result.confidence, to: statement, at: 9)
+            bind(result.suggestedAction, to: statement, at: 10)
+            bind(evidenceJSON, to: statement, at: 11)
+            try step(statement)
+        }
+    }
+
+    private func upsertAgentInsightResult(_ result: ModexAgentInsightResult) throws {
+        let evidenceData = try JSONEncoder().encode(result.evidenceIDs)
+        let evidenceJSON = String(decoding: evidenceData, as: UTF8.self)
+        try withStatement(
+            """
+            INSERT OR REPLACE INTO agent_insights (
+                source_insight_id,
+                source_fingerprint,
+                generated_at,
+                provider,
+                title,
+                summary,
+                category,
+                severity,
+                confidence,
+                suggested_action,
+                evidence_ids_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            bind(result.sourceInsightID, to: statement, at: 1)
+            bind(result.sourceFingerprint, to: statement, at: 2)
+            bind(result.generatedAt, to: statement, at: 3)
+            bind(result.provider, to: statement, at: 4)
+            bind(result.title, to: statement, at: 5)
+            bind(result.summary, to: statement, at: 6)
+            bind(result.category, to: statement, at: 7)
+            bind(result.severity, to: statement, at: 8)
+            bind(result.confidence, to: statement, at: 9)
+            bind(result.suggestedAction, to: statement, at: 10)
+            bind(evidenceJSON, to: statement, at: 11)
+            try step(statement)
+        }
+    }
+
     private func open() throws {
         var handle: OpaquePointer?
         let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
@@ -135,6 +278,60 @@ public final class ModexHistoryStore: @unchecked Sendable {
             """
             CREATE INDEX IF NOT EXISTS thread_samples_session_sampled_idx
             ON thread_samples(session_key, sampled_at);
+            """
+        )
+        try execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_insights (
+                source_insight_id TEXT NOT NULL,
+                source_fingerprint TEXT NOT NULL,
+                generated_at REAL NOT NULL,
+                provider TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                category TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                suggested_action TEXT NOT NULL,
+                evidence_ids_json TEXT NOT NULL,
+                PRIMARY KEY(source_insight_id, source_fingerprint)
+            );
+            """
+        )
+        try execute(
+            """
+            CREATE INDEX IF NOT EXISTS agent_insights_generated_at_idx
+            ON agent_insights(generated_at);
+            """
+        )
+        try execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_insight_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_insight_id TEXT NOT NULL,
+                source_fingerprint TEXT NOT NULL,
+                generated_at REAL NOT NULL,
+                provider TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                category TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                suggested_action TEXT NOT NULL,
+                evidence_ids_json TEXT NOT NULL
+            );
+            """
+        )
+        try execute(
+            """
+            CREATE INDEX IF NOT EXISTS agent_insight_runs_source_idx
+            ON agent_insight_runs(source_insight_id, generated_at);
+            """
+        )
+        try execute(
+            """
+            CREATE INDEX IF NOT EXISTS agent_insight_runs_generated_at_idx
+            ON agent_insight_runs(generated_at);
             """
         )
     }
@@ -356,6 +553,14 @@ public final class ModexHistoryStore: @unchecked Sendable {
             try step(statement)
         }
         try withStatement("DELETE FROM thread_samples WHERE sampled_at < ?;") { statement in
+            sqlite3_bind_double(statement, 1, oldest)
+            try step(statement)
+        }
+        try withStatement("DELETE FROM agent_insights WHERE generated_at < ?;") { statement in
+            sqlite3_bind_double(statement, 1, oldest)
+            try step(statement)
+        }
+        try withStatement("DELETE FROM agent_insight_runs WHERE generated_at < ?;") { statement in
             sqlite3_bind_double(statement, 1, oldest)
             try step(statement)
         }

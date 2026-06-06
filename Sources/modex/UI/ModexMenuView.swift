@@ -7,6 +7,8 @@ struct ModexMenuView: View {
     let onOpenCodexFolder: () -> Void
     let onFlushScanCache: () -> Void
     let onTestIntelligenceConnection: () -> Void
+    let onRequestAgentInsight: (ModexInsight) -> Void
+    let onFlushAgentInsightCache: () -> Void
     let onSettingsChange: (ModexAppSettings) -> Void
     let onQuit: () -> Void
 
@@ -179,7 +181,8 @@ struct ModexMenuView: View {
                     intelligenceConnectionState: model.intelligenceConnectionState,
                     onOpenCodexFolder: onOpenCodexFolder,
                     onFlushScanCache: onFlushScanCache,
-                    onTestIntelligenceConnection: onTestIntelligenceConnection
+                    onTestIntelligenceConnection: onTestIntelligenceConnection,
+                    onFlushAgentInsightCache: onFlushAgentInsightCache
                 )
             }
 
@@ -245,6 +248,7 @@ struct ModexMenuView: View {
 
 struct ModexThreadDetailWindow: View {
     @ObservedObject var model: ModexMenuModel
+    let onRequestAgentInsight: (ModexInsight) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedTab: ThreadDetailTab = .overview
@@ -466,7 +470,11 @@ struct ModexThreadDetailWindow: View {
                 leaders: activityLeaders
             )
         case .insights:
-            ThreadInsightsTab(insights: filteredInsights)
+            ThreadInsightsTab(
+                insights: filteredInsights,
+                canRequestAgentInsights: model.canRequestAgentInsights,
+                onRequestAgentInsight: onRequestAgentInsight
+            )
         case .diagnostics:
             ThreadDiagnosticsTab(metrics: model.latestMetrics)
         }
@@ -474,7 +482,7 @@ struct ModexThreadDetailWindow: View {
 
     private var filteredInsights: [ModexInsight] {
         let keys = Set(filteredSessions.map(ModexHistorySnapshot.sessionKey(for:)))
-        return model.insights.filter { insight in
+        return model.displayedInsights.filter { insight in
             guard let sessionKey = insight.sessionKey else {
                 return true
             }
@@ -780,6 +788,8 @@ private struct ThreadLeaderRowView: View {
 
 private struct ThreadInsightsTab: View {
     let insights: [ModexInsight]
+    let canRequestAgentInsights: Bool
+    let onRequestAgentInsight: (ModexInsight) -> Void
     @Environment(\.modexPalette) private var palette
 
     var body: some View {
@@ -811,7 +821,7 @@ private struct ThreadInsightsTab: View {
                     ThreadMetricCardView(
                         card: ThreadMetricCard(
                             title: ModexStrings.text("insights.agentGated"),
-                            value: "\(insights.filter { $0.status == .agentUnavailable }.count)",
+                            value: "\(insights.filter { $0.status == .agentUnavailable || $0.status == .agentFailed }.count)",
                             detail: ModexStrings.text("insights.agentGatedDetail")
                         )
                     )
@@ -838,7 +848,11 @@ private struct ThreadInsightsTab: View {
                                 .frame(maxWidth: .infinity, minHeight: 120)
                         } else {
                             ForEach(insights) { insight in
-                                InsightRowView(insight: insight)
+                                InsightRowView(
+                                    insight: insight,
+                                    canRequestAgentInsights: canRequestAgentInsights,
+                                    onRequestAgentInsight: onRequestAgentInsight
+                                )
                             }
                         }
                     }
@@ -864,6 +878,8 @@ private struct ThreadInsightsTab: View {
                 .frame(width: 84, alignment: .trailing)
             Text(ModexStrings.text("insights.updated"))
                 .frame(width: 90, alignment: .trailing)
+            Text("")
+                .frame(width: 76, alignment: .trailing)
         }
         .font(.system(size: 10, weight: .semibold))
         .foregroundStyle(palette.mutedText)
@@ -880,6 +896,8 @@ private struct ThreadInsightsTab: View {
 
 private struct InsightRowView: View {
     let insight: ModexInsight
+    let canRequestAgentInsights: Bool
+    let onRequestAgentInsight: (ModexInsight) -> Void
     @Environment(\.modexPalette) private var palette
 
     var body: some View {
@@ -899,11 +917,7 @@ private struct InsightRowView: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(palette.mutedText)
                         .lineLimit(2)
-                    Text(source)
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(palette.mutedText.opacity(0.86))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    tertiaryLine
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -921,9 +935,12 @@ private struct InsightRowView: View {
 
             UpdatedCell(updatedAt: insight.updatedAt)
                 .frame(width: 90, alignment: .trailing)
+
+            insightAction
+                .frame(width: 76, alignment: .trailing)
         }
         .padding(.horizontal, 12)
-        .frame(minHeight: 62)
+        .frame(minHeight: insight.agentResult == nil ? 62 : 70)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(palette.surface.opacity(0.24))
@@ -933,6 +950,9 @@ private struct InsightRowView: View {
     }
 
     private var title: String {
+        if let agentResult = insight.agentResult {
+            return agentResult.title
+        }
         switch insight.kind {
         case .highContext:
             return ModexStrings.text("insights.highContext")
@@ -954,6 +974,12 @@ private struct InsightRowView: View {
     }
 
     private var detail: String {
+        if let error = insight.agentError {
+            return error
+        }
+        if let agentResult = insight.agentResult {
+            return agentResult.summary
+        }
         let thread = insight.threadName ?? insight.projectTitle ?? ModexStrings.text("overview.codexSession")
         switch insight.kind {
         case .highContext:
@@ -976,6 +1002,9 @@ private struct InsightRowView: View {
     }
 
     private var source: String {
+        if let agentResult = insight.agentResult {
+            return agentResult.suggestedAction
+        }
         if let projectTitle = insight.projectTitle {
             return projectTitle
         }
@@ -983,6 +1012,23 @@ private struct InsightRowView: View {
             return sourcePath
         }
         return ModexStrings.text("insights.global")
+    }
+
+    @ViewBuilder
+    private var tertiaryLine: some View {
+        if insight.agentResult != nil {
+            Text(nextActionText)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(palette.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else {
+            Text(source)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(palette.mutedText.opacity(0.86))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
     }
 
     private var helpText: String {
@@ -1014,6 +1060,12 @@ private struct InsightRowView: View {
             return .teal
         case .agentUnavailable:
             return ModexTheme.noticeContextColor
+        case .agentRunning:
+            return palette.accent
+        case .agentGenerated:
+            return .teal
+        case .agentFailed:
+            return ModexTheme.criticalContextColor
         case .stale:
             return palette.mutedText
         }
@@ -1025,9 +1077,57 @@ private struct InsightRowView: View {
             return ModexStrings.text("insights.statusLocal")
         case .agentUnavailable:
             return ModexStrings.text("insights.statusAgent")
+        case .agentRunning:
+            return ModexStrings.text("insights.statusRunning")
+        case .agentGenerated:
+            return ModexStrings.text("insights.statusCodex")
+        case .agentFailed:
+            return ModexStrings.text("insights.statusFailed")
         case .stale:
             return ModexStrings.text("insights.statusStale")
         }
+    }
+
+    @ViewBuilder
+    private var insightAction: some View {
+        if insight.status == .agentRunning {
+            ProgressView()
+                .controlSize(.small)
+        } else {
+            Button {
+                onRequestAgentInsight(insight)
+            } label: {
+                Label(actionTitle, systemImage: "sparkles")
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(canRequestAgentInsights ? palette.accent : palette.mutedText)
+                    .frame(width: 28, height: 28)
+                    .background(canRequestAgentInsights ? palette.surfaceHighlight : palette.surface.opacity(0.28))
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canRequestAgentInsights)
+            .help(actionHelp)
+        }
+    }
+
+    private var actionTitle: String {
+        insight.agentResult == nil
+            ? ModexStrings.text("insights.analyze")
+            : ModexStrings.text("insights.rerun")
+    }
+
+    private var actionHelp: String {
+        canRequestAgentInsights
+            ? actionTitle
+            : ModexStrings.text("insights.connectFirst")
+    }
+
+    private var nextActionText: String {
+        guard let agentResult = insight.agentResult else {
+            return source
+        }
+        return ModexStrings.format("insights.nextAction", agentResult.suggestedAction)
     }
 }
 
@@ -2874,6 +2974,7 @@ private struct ConfigurationView: View {
     let onOpenCodexFolder: () -> Void
     let onFlushScanCache: () -> Void
     let onTestIntelligenceConnection: () -> Void
+    let onFlushAgentInsightCache: () -> Void
     @Environment(\.modexPalette) private var palette
     @State private var selectedSection = 0
 
@@ -3168,6 +3269,46 @@ private struct ConfigurationView: View {
             }
 
             settingsRow(
+                icon: "terminal",
+                tint: .cyan,
+                title: ModexStrings.text("config.intelligenceExecutable"),
+                detail: ModexStrings.text("config.intelligenceExecutableHelp")
+            ) {
+                TextField(
+                    ModexStrings.text("config.intelligenceExecutable"),
+                    text: Binding(
+                        get: { settings.intelligence.codexExecutablePath },
+                        set: { settings = updatedSettings(intelligenceCodexExecutablePath: $0) }
+                    )
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(palette.text)
+                .padding(.horizontal, 9)
+                .frame(width: 220, height: 30)
+                .background(palette.sidebar.opacity(0.66))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(palette.surface.opacity(0.45), lineWidth: 0.7)
+                }
+            }
+
+            stepperRow(
+                icon: "timer",
+                tint: .cyan,
+                title: ModexStrings.text("config.intelligenceTimeout"),
+                detail: ModexStrings.text("config.intelligenceTimeoutHelp"),
+                value: Binding(
+                    get: { settings.intelligence.timeoutSeconds },
+                    set: { settings = updatedSettings(intelligenceTimeoutSeconds: $0) }
+                ),
+                range: 5...180,
+                step: 5,
+                suffix: " s"
+            )
+
+            settingsRow(
                 icon: intelligenceStatusIcon,
                 tint: intelligenceStatusColor,
                 title: ModexStrings.text("config.intelligenceStatus"),
@@ -3194,6 +3335,19 @@ private struct ConfigurationView: View {
                     .buttonStyle(.plain)
                     .disabled(!canTestIntelligence)
                 }
+            }
+
+            settingsRow(
+                icon: "trash",
+                tint: .cyan,
+                title: ModexStrings.text("config.flushInsightCache"),
+                detail: ModexStrings.text("config.flushInsightCacheHelp")
+            ) {
+                IconButton(
+                    symbol: "trash",
+                    label: ModexStrings.text("config.flushInsightCache"),
+                    action: onFlushAgentInsightCache
+                )
             }
         }
     }
@@ -3362,6 +3516,8 @@ private struct ConfigurationView: View {
         language: ModexLanguage? = nil,
         intelligenceEnabled: Bool? = nil,
         intelligenceProvider: ModexIntelligenceProvider? = nil,
+        intelligenceCodexExecutablePath: String? = nil,
+        intelligenceTimeoutSeconds: Int? = nil,
         sessionDetailHoverDelayMilliseconds: Int? = nil,
         maximumConcurrentParses: Int? = nil,
         chunkSizeKB: Int? = nil,
@@ -3398,10 +3554,22 @@ private struct ConfigurationView: View {
         }
         if let intelligenceEnabled {
             next.intelligence.enabled = intelligenceEnabled
+            if intelligenceEnabled, next.intelligence.provider == .off {
+                next.intelligence.provider = .localCodex
+            }
+            if intelligenceEnabled == false {
+                next.intelligence.provider = .off
+            }
         }
         if let intelligenceProvider {
             next.intelligence.provider = intelligenceProvider
             next.intelligence.enabled = intelligenceProvider != .off
+        }
+        if let intelligenceCodexExecutablePath {
+            next.intelligence.codexExecutablePath = intelligenceCodexExecutablePath
+        }
+        if let intelligenceTimeoutSeconds {
+            next.intelligence.timeoutSeconds = intelligenceTimeoutSeconds
         }
         if let sessionDetailHoverDelayMilliseconds {
             next.sessionDetailHoverDelayMilliseconds = sessionDetailHoverDelayMilliseconds
@@ -3484,10 +3652,10 @@ private struct ConfigurationView: View {
             return ModexStrings.text("config.intelligenceStatusTestingHelp")
         case .connected(let date):
             return ModexStrings.format("config.intelligenceStatusConnectedHelp", UpdatedCell.exactText(for: date))
-        case .limited:
-            return ModexStrings.text("config.intelligenceStatusLimitedHelp")
-        case .failed:
-            return ModexStrings.text("config.intelligenceStatusFailedHelp")
+        case .limited(let message):
+            return message.isEmpty ? ModexStrings.text("config.intelligenceStatusLimitedHelp") : message
+        case .failed(let message):
+            return message.isEmpty ? ModexStrings.text("config.intelligenceStatusFailedHelp") : message
         }
     }
 }

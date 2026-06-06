@@ -75,9 +75,9 @@ Defaults:
 - Row-detail hover delay: 500 ms.
 - Agent insights: off.
 
-General settings cover scan limit, refresh interval, archived-session inclusion, scan cache enablement, cache flushing, and the Codex data folder. Appearance settings cover System/Black theme, language, and hover delay. Context settings tune the warning thresholds. Intelligence settings control optional Codex-assisted interpretation. Expert settings tune parser concurrency and buffer sizes.
+General settings cover scan limit, refresh interval, archived-session inclusion, scan cache enablement, cache flushing, and the Codex data folder. Appearance settings cover System/Black theme, language, and hover delay. Context settings tune the warning thresholds. Intelligence settings control optional Codex-assisted interpretation, local Codex executable path, timeout, test connection, and generated-insight cache flushing. Expert settings tune parser concurrency and buffer sizes.
 
-The Intelligence settings section controls optional Codex-assisted narrative interpretation. The current production behavior is deterministic and local-first: Modex shows facts, charts, sparklines, and reason-coded insights without sending prompt text anywhere. The local Codex connection test reports `Limited` until a real structured insight bridge is configured.
+The Intelligence settings section controls optional Codex-assisted narrative interpretation. Modex remains deterministic and local-first by default: facts, charts, sparklines, and reason-coded insights work without sending prompt text anywhere. When enabled, the Local Codex provider uses `codex exec --ephemeral` with a strict output schema and a compact metrics bundle. The connection test turns green only after a real structured insight response is validated.
 
 Settings are stored in macOS `UserDefaults` under the app domain `ch.moreaki.modex`. The parsed scan cache is intentionally in-memory only and is rebuilt after app restart.
 
@@ -87,7 +87,7 @@ History samples are stored in a compact SQLite database at:
 ~/Library/Application Support/Modex/history.sqlite
 ```
 
-The history store contains derived scan/thread metrics, not raw prompt text.
+The history store contains derived scan/thread metrics and generated insight summaries, not raw prompt text. Successful Codex insight runs are retained as a small run history while the latest generated result stays quick to display.
 
 ## Data Sources
 

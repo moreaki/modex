@@ -13,6 +13,8 @@ struct ModexDesktopApplication: App {
                 onOpenCodexFolder: controller.openCodexFolder,
                 onFlushScanCache: controller.flushScanCache,
                 onTestIntelligenceConnection: controller.testIntelligenceConnection,
+                onRequestAgentInsight: controller.requestAgentInsight,
+                onFlushAgentInsightCache: controller.flushAgentInsightCache,
                 onSettingsChange: controller.apply,
                 onQuit: controller.quit
             )
@@ -28,7 +30,10 @@ struct ModexDesktopApplication: App {
         .menuBarExtraStyle(.window)
 
         Window(ModexStrings.text("detail.title"), id: ModexWindowID.threadDetail) {
-            ModexThreadDetailWindow(model: controller.model)
+            ModexThreadDetailWindow(
+                model: controller.model,
+                onRequestAgentInsight: controller.requestAgentInsight
+            )
         }
         .defaultSize(width: 1120, height: 720)
     }

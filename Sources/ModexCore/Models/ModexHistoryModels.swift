@@ -174,7 +174,54 @@ public enum ModexInsightSeverity: Int, CaseIterable, Sendable {
 public enum ModexInsightStatus: String, CaseIterable, Sendable {
     case deterministic
     case agentUnavailable
+    case agentRunning
+    case agentGenerated
+    case agentFailed
     case stale
+}
+
+public struct ModexAgentInsightResult: Equatable, Codable, Sendable, Identifiable {
+    public var id: String {
+        "\(sourceInsightID)-\(sourceFingerprint)"
+    }
+
+    public let sourceInsightID: String
+    public let sourceFingerprint: String
+    public let generatedAt: Date
+    public let provider: String
+    public let title: String
+    public let summary: String
+    public let category: String
+    public let severity: String
+    public let confidence: Double
+    public let suggestedAction: String
+    public let evidenceIDs: [String]
+
+    public init(
+        sourceInsightID: String,
+        sourceFingerprint: String,
+        generatedAt: Date,
+        provider: String,
+        title: String,
+        summary: String,
+        category: String,
+        severity: String,
+        confidence: Double,
+        suggestedAction: String,
+        evidenceIDs: [String]
+    ) {
+        self.sourceInsightID = sourceInsightID
+        self.sourceFingerprint = sourceFingerprint
+        self.generatedAt = generatedAt
+        self.provider = provider
+        self.title = title
+        self.summary = summary
+        self.category = category
+        self.severity = severity
+        self.confidence = min(max(confidence, 0), 1)
+        self.suggestedAction = suggestedAction
+        self.evidenceIDs = evidenceIDs
+    }
 }
 
 public struct ModexSignalThresholds: Equatable, Sendable {
@@ -204,6 +251,8 @@ public struct ModexInsight: Equatable, Sendable, Identifiable {
     public let evidenceCount: Int
     public let updatedAt: Date?
     public let sourcePath: String?
+    public let agentResult: ModexAgentInsightResult?
+    public let agentError: String?
 
     public init(
         id: String,
@@ -219,7 +268,9 @@ public struct ModexInsight: Equatable, Sendable, Identifiable {
         count: Int? = nil,
         evidenceCount: Int,
         updatedAt: Date? = nil,
-        sourcePath: String? = nil
+        sourcePath: String? = nil,
+        agentResult: ModexAgentInsightResult? = nil,
+        agentError: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -235,5 +286,100 @@ public struct ModexInsight: Equatable, Sendable, Identifiable {
         self.evidenceCount = evidenceCount
         self.updatedAt = updatedAt
         self.sourcePath = sourcePath
+        self.agentResult = agentResult
+        self.agentError = agentError
+    }
+
+    public var agentFingerprint: String {
+        ModexStableHash.hex(
+            [
+                id,
+                kind.rawValue,
+                severity.rawValue.description,
+                sessionKey ?? "",
+                sessionID ?? "",
+                threadName ?? "",
+                projectTitle ?? "",
+                valueString(primaryValue),
+                valueString(secondaryValue),
+                count.map(String.init) ?? "",
+                evidenceCount.description,
+                updatedAt.map { String(Int($0.timeIntervalSince1970)) } ?? "",
+            ]
+        )
+    }
+
+    public func applyingAgentState(
+        result: ModexAgentInsightResult?,
+        isRunning: Bool,
+        error: String?
+    ) -> ModexInsight {
+        let nextStatus: ModexInsightStatus
+        let nextResult: ModexAgentInsightResult?
+        let nextError: String?
+
+        if isRunning {
+            nextStatus = .agentRunning
+            nextResult = nil
+            nextError = nil
+        } else if let error {
+            nextStatus = .agentFailed
+            nextResult = nil
+            nextError = error
+        } else if let result {
+            if result.sourceFingerprint == agentFingerprint {
+                nextStatus = .agentGenerated
+            } else {
+                nextStatus = .stale
+            }
+            nextResult = result
+            nextError = nil
+        } else {
+            nextStatus = status
+            nextResult = nil
+            nextError = nil
+        }
+
+        return ModexInsight(
+            id: id,
+            kind: kind,
+            severity: severity,
+            status: nextStatus,
+            sessionKey: sessionKey,
+            sessionID: sessionID,
+            threadName: threadName,
+            projectTitle: projectTitle,
+            primaryValue: primaryValue,
+            secondaryValue: secondaryValue,
+            count: count,
+            evidenceCount: evidenceCount,
+            updatedAt: updatedAt,
+            sourcePath: sourcePath,
+            agentResult: nextResult,
+            agentError: nextError
+        )
+    }
+
+    private func valueString(_ value: Double?) -> String {
+        guard let value else {
+            return ""
+        }
+        return String(format: "%.4f", value)
+    }
+}
+
+public enum ModexStableHash {
+    public static func hex(_ parts: [String]) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        let prime: UInt64 = 0x100000001b3
+        for part in parts {
+            for byte in part.utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* prime
+            }
+            hash ^= 0xff
+            hash = hash &* prime
+        }
+        return String(format: "%016llx", hash)
     }
 }

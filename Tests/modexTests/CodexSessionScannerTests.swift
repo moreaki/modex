@@ -109,6 +109,8 @@ import Testing
     #expect(session.medianTimeToFirstTokenMilliseconds == 3_547)
     #expect(session.commandEvents == 2)
     #expect(session.failedCommandEvents == 1)
+    #expect(session.failedCommandSummaries.first?.commandName == "false")
+    #expect(session.failedCommandSummaries.first?.exitCode == 2)
     #expect(session.toolCallEvents == 1)
     #expect(session.changedFileEvents == 2)
 }
@@ -454,6 +456,43 @@ import Testing
     #expect(samples.first?.projectTitle == "insight")
     #expect(samples.first?.contextPercent == 92.0)
     #expect(samples.first?.failedCommandEvents == 3)
+
+    let agentResult = ModexAgentInsightResult(
+        sourceInsightID: "insight-failed-commands",
+        sourceFingerprint: "fingerprint",
+        generatedAt: Date(timeIntervalSince1970: 1_800_000_120),
+        provider: "local-codex",
+        title: "Repeated command failures",
+        summary: "Several failed command exits point to a likely local environment issue.",
+        category: "failure_cost",
+        severity: "warning",
+        confidence: 0.8,
+        suggestedAction: "Inspect the repeated failing command before continuing.",
+        evidenceIDs: ["signal:failedCommands", "session:insight"]
+    )
+    let rerunAgentResult = ModexAgentInsightResult(
+        sourceInsightID: "insight-failed-commands",
+        sourceFingerprint: "fingerprint",
+        generatedAt: Date(timeIntervalSince1970: 1_800_000_180),
+        provider: "local-codex",
+        title: "Command loop",
+        summary: "The same failing command repeated in the latest sample.",
+        category: "command_health",
+        severity: "warning",
+        confidence: 0.9,
+        suggestedAction: "Open the failed command log for this thread.",
+        evidenceIDs: ["signal:failedCommands", "session:insight"]
+    )
+    try store.save(agentInsight: agentResult)
+    try store.save(agentInsight: rerunAgentResult)
+
+    let savedAgentResult = try #require(store.agentInsightResults().first)
+    #expect(savedAgentResult == rerunAgentResult)
+
+    let agentRuns = try store.agentInsightRuns()
+    #expect(agentRuns.count == 2)
+    #expect(agentRuns.first == rerunAgentResult)
+    #expect(agentRuns.last == agentResult)
 }
 
 @Test func signalEngineProducesDeterministicInsights() throws {
@@ -478,6 +517,44 @@ import Testing
     #expect(insights.contains { $0.kind == .slowTurn })
     #expect(insights.contains { $0.kind == .repeatedCompactions })
     #expect(insights.contains { $0.kind == .highCacheReuse })
+}
+
+@Test func agentEvidenceBuilderCreatesMetricsOnlyRequest() throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    try writeInsightSession(to: sessionsDirectory.appendingPathComponent("insight.jsonl"))
+    let summary = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).summary()
+    let insight = try #require(
+        ModexSignalEngine()
+            .insights(
+                for: summary,
+                history: nil,
+                thresholds: ModexSignalThresholds(yellowPercent: 55, orangePercent: 78, redPercent: 90)
+            )
+            .first { $0.kind == .failedCommands }
+    )
+
+    let request = ModexAgentInsightEvidenceBuilder().request(
+        for: insight,
+        summary: summary,
+        history: nil,
+        includeCommandNames: true
+    )
+
+    #expect(request.sourceInsightID == insight.id)
+    #expect(request.sourceFingerprint == insight.agentFingerprint)
+    #expect(request.privacyMode == "metrics_and_sanitized_commands")
+    #expect(request.signal.analysisState == "needs_interpretation")
+    #expect(request.session?.failedCommands.count == 3)
+    #expect(request.session?.failedCommands.map(\.commandName) == ["false", "false", "missing-tool"])
+    #expect(request.evidenceIDs.contains("signal:failedCommands"))
+    #expect(request.evidenceIDs.contains("session:insight"))
 }
 
 private func writeSession(id: String, to fileURL: URL) throws {

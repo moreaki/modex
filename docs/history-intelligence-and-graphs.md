@@ -218,12 +218,12 @@ Rules:
 - Provide a deterministic fallback: show the underlying facts and reasons if agent access is unavailable.
 - Avoid "solved", "successful", or "useful" claims unless explicit evidence supports them.
 
-Implementation shape:
+Implemented shape:
 
-- `HistoryStore` persists samples and graph points.
-- `SignalEngine` computes deterministic facts, trends, thresholds, and attention reasons.
-- `AgentInsightService` is optional and consumes only summarized signal bundles.
-- SwiftUI views render agent insight sections only when `AgentInsightService` is available and has a fresh result.
+- `ModexHistoryStore` persists scan/thread samples, graph points, and generated insight summaries.
+- `ModexSignalEngine` computes deterministic facts, trends, thresholds, and attention reasons.
+- `LocalCodexAgentInsightService` is optional and consumes only summarized signal bundles through `codex exec --ephemeral`.
+- SwiftUI renders deterministic insight rows immediately and can enrich a row with a schema-validated Codex result on demand.
 
 The app should avoid hard-coding lots of prose-based interpretation. Hard-code metric definitions, thresholds, and reason codes; let an optional agent turn those facts into natural-language summaries when configured.
 
@@ -239,6 +239,8 @@ Settings should include:
   - local/running Codex agent when available
   - Codex CLI or future local analysis command
   - configured API token/model endpoint
+- configurable local Codex executable or command path
+- timeout for local insight requests
 - credential state without revealing secrets
 - model or capability summary when known
 - "Test Connection" action
@@ -256,7 +258,7 @@ Connection states:
 - Limited: reachable, but missing a capability needed for narrative insight.
 - Failed: unreachable, unauthorized, timed out, or returned invalid structured output.
 
-The green state should mean more than "a token exists". It should mean Modex successfully completed a tiny end-to-end test:
+The green state means more than "a token exists". It means Modex successfully completed a tiny end-to-end test:
 
 1. build a synthetic signal bundle with no private prompt text
 2. call the configured Codex/agent provider
@@ -281,14 +283,21 @@ Some factual metrics should expose an optional insight action. Failed command st
 Behavior:
 
 - Show a small insight icon next to eligible metrics such as failed commands, failure-cost proxy, slowest turn, repeated compactions, or unusual context growth.
-- Enable the icon only when Codex connectivity is green.
-- If disconnected, either hide the icon or show a disabled state with a short "Connect Codex Intelligence in Settings" explanation.
+- Enable the icon when Codex Intelligence is configured. Prefer a disabled state with a short "Connect Codex Intelligence in Settings" explanation when the provider is off.
 - The action must be user-triggered. Do not automatically send logs to an agent just because a metric is visible.
-- Send the smallest useful bundle: command summaries, exit codes, timestamps, thread/session ids, surrounding deterministic metrics, and selected log excerpts only when needed.
+- Send the smallest useful bundle: command summaries, exit codes, timestamps, thread/session ids, surrounding deterministic metrics, and selected log excerpts only when explicitly allowed later.
 - Avoid raw prompt text by default. If deeper log text is needed, ask for explicit opt-in or use a privacy setting that clearly allows it.
 - Ask the agent for structured output: likely cause, confidence, evidence ids, suggested next action, and whether the pattern looks transient, environmental, or blocking.
 - Display the result in the detail-window `Insights` table, with evidence links back to the facts. A tiny inline result can be acceptable immediately after clicking, but the durable home is the Insights table.
 - Cache the result against the underlying sample/log fingerprint and mark it stale when the source data changes.
+
+Current privacy boundary:
+
+- No raw prompt text is sent.
+- No raw JSONL lines are sent.
+- Failed-command evidence is capped and sanitized to command executable name plus exit code.
+- Generated results are persisted by insight id and metric fingerprint for fast display, and every successful generated run is also appended to a small run history. Stale results remain visible as stale instead of being silently reused.
+- Generated copy must be compact enough for the Insights table: a 2-5 word title, one short diagnosis sentence, and one concrete next step. Internal app states such as `agentUnavailable` or connection labels are not user-facing evidence and must not appear in generated prose.
 
 For failed commands, useful evidence includes command name, exit code, duration, stderr/stdout excerpt policy, repetition count, last occurrence, surrounding model/reasoning/speed, project, thread id, and whether a later command succeeded.
 

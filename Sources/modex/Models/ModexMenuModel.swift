@@ -7,6 +7,9 @@ final class ModexMenuModel: ObservableObject {
     @Published var summary: ModexSummary?
     @Published var history: ModexHistorySnapshot?
     @Published var insights: [ModexInsight] = []
+    @Published var agentInsightResults: [String: ModexAgentInsightResult] = [:]
+    @Published var runningAgentInsightIDs: Set<String> = []
+    @Published var agentInsightErrors: [String: String] = [:]
     @Published var settings: ModexAppSettings
     @Published var intelligenceConnectionState: ModexIntelligenceConnectionState
     @Published var isRefreshing = false
@@ -20,6 +23,20 @@ final class ModexMenuModel: ObservableObject {
 
     var latestMetrics: ScanMetrics? {
         summary?.scanMetrics
+    }
+
+    var displayedInsights: [ModexInsight] {
+        insights.map { insight in
+            insight.applyingAgentState(
+                result: agentInsightResults[insight.id],
+                isRunning: runningAgentInsightIDs.contains(insight.id),
+                error: agentInsightErrors[insight.id]
+            )
+        }
+    }
+
+    var canRequestAgentInsights: Bool {
+        settings.intelligence.enabled && settings.intelligence.provider != .off
     }
 
     var lastReadStatus: String {

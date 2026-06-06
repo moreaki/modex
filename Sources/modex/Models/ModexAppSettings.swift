@@ -1,7 +1,7 @@
 import Foundation
 import ModexCore
 
-struct ModexContextThresholds: Equatable {
+struct ModexContextThresholds: Equatable, Sendable {
     var yellowPercent: Double
     var orangePercent: Double
     var redPercent: Double
@@ -24,7 +24,7 @@ struct ModexContextThresholds: Equatable {
     }
 }
 
-enum ModexColorTheme: String, CaseIterable, Identifiable {
+enum ModexColorTheme: String, CaseIterable, Identifiable, Sendable {
     case system
     case black
 
@@ -40,7 +40,7 @@ enum ModexColorTheme: String, CaseIterable, Identifiable {
     }
 }
 
-enum ModexLanguage: String, CaseIterable, Identifiable {
+enum ModexLanguage: String, CaseIterable, Identifiable, Sendable {
     case system
     case en
     case de
@@ -102,7 +102,7 @@ enum ModexLanguage: String, CaseIterable, Identifiable {
     }
 }
 
-enum ModexIntelligenceProvider: String, CaseIterable, Identifiable {
+enum ModexIntelligenceProvider: String, CaseIterable, Identifiable, Sendable {
     case off
     case localCodex
 
@@ -118,24 +118,39 @@ enum ModexIntelligenceProvider: String, CaseIterable, Identifiable {
     }
 }
 
-struct ModexIntelligenceSettings: Equatable {
+struct ModexIntelligenceSettings: Equatable, Sendable {
     var enabled: Bool
     var provider: ModexIntelligenceProvider
+    var codexExecutablePath: String
+    var timeoutSeconds: Int
 
     static let `default` = ModexIntelligenceSettings(
         enabled: false,
-        provider: .off
+        provider: .off,
+        codexExecutablePath: "codex",
+        timeoutSeconds: 45
     )
 
     func normalized() -> ModexIntelligenceSettings {
-        ModexIntelligenceSettings(
+        let executablePath = codexExecutablePath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return ModexIntelligenceSettings(
             enabled: enabled,
-            provider: enabled ? provider : .off
+            provider: enabled ? provider : .off,
+            codexExecutablePath: executablePath.isEmpty ? "codex" : executablePath,
+            timeoutSeconds: min(max(timeoutSeconds, 5), 180)
+        )
+    }
+
+    var localCodexConfiguration: LocalCodexInsightConfiguration {
+        LocalCodexInsightConfiguration(
+            executablePath: codexExecutablePath,
+            timeoutSeconds: timeoutSeconds
         )
     }
 }
 
-enum ModexIntelligenceConnectionState: Equatable {
+enum ModexIntelligenceConnectionState: Equatable, Sendable {
     case off
     case unknown
     case testing
@@ -144,7 +159,7 @@ enum ModexIntelligenceConnectionState: Equatable {
     case failed(String)
 }
 
-struct ModexParserTuningSettings: Equatable {
+struct ModexParserTuningSettings: Equatable, Sendable {
     var maximumConcurrentParses: Int
     var chunkSizeKB: Int
     var lineBufferKB: Int
@@ -198,7 +213,7 @@ struct ModexParserTuningSettings: Equatable {
     }
 }
 
-struct ModexAppSettings: Equatable {
+struct ModexAppSettings: Equatable, Sendable {
     var scanLimit: Int
     var refreshIntervalSeconds: TimeInterval
     var includeArchivedSessions: Bool
@@ -264,6 +279,8 @@ final class ModexSettingsStore {
         static let language = ModexStrings.languagePreferenceDefaultsKey
         static let intelligenceEnabled = "intelligenceEnabled"
         static let intelligenceProvider = "intelligenceProvider"
+        static let intelligenceCodexExecutablePath = "intelligenceCodexExecutablePath"
+        static let intelligenceTimeoutSeconds = "intelligenceTimeoutSeconds"
         static let sessionDetailHoverDelayMilliseconds = "sessionDetailHoverDelayMilliseconds"
         static let maximumConcurrentParses = "maximumConcurrentParses"
         static let chunkSizeKB = "chunkSizeKB"
@@ -317,6 +334,14 @@ final class ModexSettingsStore {
                 provider: intelligenceProvider(
                     forKey: Key.intelligenceProvider,
                     defaultValue: defaults.intelligence.provider
+                ),
+                codexExecutablePath: string(
+                    forKey: Key.intelligenceCodexExecutablePath,
+                    defaultValue: defaults.intelligence.codexExecutablePath
+                ),
+                timeoutSeconds: integer(
+                    forKey: Key.intelligenceTimeoutSeconds,
+                    defaultValue: defaults.intelligence.timeoutSeconds
                 )
             ),
             sessionDetailHoverDelayMilliseconds: integer(
@@ -357,6 +382,8 @@ final class ModexSettingsStore {
         defaults.set(settings.language.rawValue, forKey: Key.language)
         defaults.set(settings.intelligence.enabled, forKey: Key.intelligenceEnabled)
         defaults.set(settings.intelligence.provider.rawValue, forKey: Key.intelligenceProvider)
+        defaults.set(settings.intelligence.codexExecutablePath, forKey: Key.intelligenceCodexExecutablePath)
+        defaults.set(settings.intelligence.timeoutSeconds, forKey: Key.intelligenceTimeoutSeconds)
         defaults.set(
             settings.sessionDetailHoverDelayMilliseconds,
             forKey: Key.sessionDetailHoverDelayMilliseconds
@@ -386,6 +413,13 @@ final class ModexSettingsStore {
             return defaultValue
         }
         return defaults.bool(forKey: key)
+    }
+
+    private func string(forKey key: String, defaultValue: String) -> String {
+        guard let value = defaults.string(forKey: key) else {
+            return defaultValue
+        }
+        return value
     }
 
     private func colorTheme(forKey key: String, defaultValue: ModexColorTheme) -> ModexColorTheme {

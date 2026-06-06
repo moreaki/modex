@@ -53,6 +53,9 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Compact values are fine in the table, but exact values should be reachable through a calm reveal.
 - Exact-number reveals should morph from compact to exact value only. Do not show both compact and exact values side by side, and do not wrap them in a capsule unless there is a clear reason.
 - If an exact value can be wider than its column, constrain, scale, or clip it so it never shadows the next cell.
+- Agent-generated insight copy must fit table rows: short title, one compact diagnosis sentence, and one compact next step. Do not let generated prose become a paragraph.
+- Do not expose internal app states such as `agentUnavailable`, `Needs Codex`, or connection state names as evidence in generated insight text.
+- Persist successful generated insight runs append-only while also keeping the latest result fast to display.
 - Column title help should explain what the metric means, but the hover itself should be quiet and non-invasive.
 
 ## Hover And Tooltip Behavior
@@ -107,6 +110,10 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Keep hit targets comfortable for menu-bar and popup use.
 - Provide useful labels/tooltips for icon-only actions.
 - All new UI text must be localized in every supported language resource.
+- Localization files must contain real language-specific copy. Do not copy English strings into `de`, `fr`, `es`, or `it` as a placeholder except for intentional product names, code formulas, file names, format tokens, or very short technical labels that are normally unchanged in that language.
+- When adding, removing, or changing a localization key, update every supported `.lproj/Localizable.strings` file in the same change. Preserve the key order across locale files so drift is easy to review.
+- Preserve placeholder contracts exactly across translations: `%@`, `%d`, escaped `%%`, and `\n` must remain present and in the same semantic order.
+- Before finishing localization work, compare non-English files against `en.lproj` for suspicious copied sentence-length English values and fix them rather than leaving fallback text for later.
 - Verify both System and Black themes, and verify light and dark appearances when System is selected.
 
 ## Verification

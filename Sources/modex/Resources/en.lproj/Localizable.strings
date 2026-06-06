@@ -228,6 +228,8 @@
 "config.intelligenceProviderHelp" = "Source used for optional narrative insight analysis.";
 "config.intelligenceProviderLocalCodex" = "Local Codex";
 "config.intelligenceProviderOff" = "Off";
+"config.intelligenceExecutable" = "Codex executable";
+"config.intelligenceExecutableHelp" = "Command or absolute path used for local structured insight requests.";
 "config.intelligenceSection" = "Codex Intelligence";
 "config.intelligenceStatus" = "Connection";
 "config.intelligenceStatusConnected" = "Connected";
@@ -242,6 +244,16 @@
 "config.intelligenceStatusTestingHelp" = "Checking whether Modex can run a structured insight request.";
 "config.intelligenceStatusUnknown" = "Unknown";
 "config.intelligenceStatusUnknownHelp" = "Run a test before showing agent-generated interpretations.";
+"config.intelligenceTimeout" = "Timeout";
+"config.intelligenceTimeoutHelp" = "Maximum time for a local Codex insight request before Modex falls back to local signals.";
+"config.flushInsightCache" = "Flush insights";
+"config.flushInsightCacheHelp" = "Remove stored Codex-generated interpretations. Local deterministic signals are kept.";
+"config.intelligenceErrorUnavailable" = "Codex executable was not found: %@";
+"config.intelligenceErrorTimedOut" = "Codex insight request timed out after %d s.";
+"config.intelligenceErrorProcess" = "Codex exited with status %d.";
+"config.intelligenceErrorProcessDetail" = "Codex exited with status %d: %@";
+"config.intelligenceErrorMissingOutput" = "Codex did not write a structured insight result.";
+"config.intelligenceErrorInvalidOutput" = "Codex returned invalid insight JSON: %@";
 "config.testConnection" = "Test";
 
 "detail.insights" = "Insights";
@@ -269,6 +281,7 @@
 "insights.highCacheReuseDetail" = "%@ cached input in %@.";
 "insights.highContext" = "High context";
 "insights.highContextDetail" = "%@ context used in %@.";
+"insights.nextAction" = "Next: %@";
 "insights.repeatedCompactions" = "Repeated compactions";
 "insights.repeatedCompactionsDetail" = "%d compactions in %@.";
 "insights.scanSlow" = "Slow scan";
@@ -278,8 +291,14 @@
 "insights.slowTurnDetail" = "%@ latest turn in %@.";
 "insights.status" = "Status";
 "insights.statusAgent" = "Needs Codex";
+"insights.statusCodex" = "Codex";
+"insights.statusFailed" = "Failed";
 "insights.statusLocal" = "Local";
+"insights.statusRunning" = "Running";
 "insights.statusStale" = "Stale";
 "insights.total" = "Insights";
 "insights.totalDetail" = "Deterministic signals and optional agent-backed interpretations.";
 "insights.updated" = "Updated";
+"insights.analyze" = "Analyze";
+"insights.rerun" = "Rerun";
+"insights.connectFirst" = "Enable Codex Intelligence and run the connection test first.";

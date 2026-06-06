@@ -82,6 +82,18 @@ public struct CodexRateLimitWindow: Equatable, Sendable {
     }
 }
 
+public struct CommandFailureSummary: Equatable, Codable, Sendable {
+    public let timestamp: Date?
+    public let commandName: String?
+    public let exitCode: Int
+
+    public init(timestamp: Date?, commandName: String?, exitCode: Int) {
+        self.timestamp = timestamp
+        self.commandName = commandName
+        self.exitCode = exitCode
+    }
+}
+
 public struct SessionSnapshot: Equatable, Sendable {
     public let fileURL: URL
     public var sessionID: String?
@@ -99,6 +111,7 @@ public struct SessionSnapshot: Equatable, Sendable {
     public var timeToFirstTokenMilliseconds: [Int]
     public var commandEvents: Int
     public var failedCommandEvents: Int
+    public var failedCommandSummaries: [CommandFailureSummary]
     public var toolCallEvents: Int
     public var changedFileEvents: Int
 
@@ -119,6 +132,7 @@ public struct SessionSnapshot: Equatable, Sendable {
         timeToFirstTokenMilliseconds = []
         commandEvents = 0
         failedCommandEvents = 0
+        failedCommandSummaries = []
         toolCallEvents = 0
         changedFileEvents = 0
     }

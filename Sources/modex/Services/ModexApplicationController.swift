@@ -10,27 +10,38 @@ final class ModexApplicationController: ObservableObject {
     private let monitor: ModexMonitor
     private let historyStore: ModexHistoryStore?
     private let signalEngine = ModexSignalEngine()
+    private let agentEvidenceBuilder = ModexAgentInsightEvidenceBuilder()
     private var settings: ModexAppSettings
     private var latestSummary: ModexSummary?
     private var refreshTask: Task<Void, Never>?
     private var refreshLoopTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
+    private var agentInsightTasks: [String: Task<Void, Never>] = [:]
     private var hasStarted = false
 
     init() {
         let settingsStore = ModexSettingsStore()
         let settings = settingsStore.load()
+        let historyStore = try? ModexHistoryStore(databaseURL: ModexHistoryStore.defaultDatabaseURL())
         self.settingsStore = settingsStore
         self.settings = settings
         monitor = ModexMonitor(configuration: settings.monitorConfiguration)
-        historyStore = try? ModexHistoryStore(databaseURL: ModexHistoryStore.defaultDatabaseURL())
+        self.historyStore = historyStore
         model = ModexMenuModel(settings: settings)
+        if let results = try? historyStore?.agentInsightResults() {
+            model.agentInsightResults = Dictionary(
+                uniqueKeysWithValues: results.map { ($0.sourceInsightID, $0) }
+            )
+        }
     }
 
     deinit {
         refreshTask?.cancel()
         refreshLoopTask?.cancel()
         historyTask?.cancel()
+        for task in agentInsightTasks.values {
+            task.cancel()
+        }
     }
 
     func start() {
@@ -64,6 +75,7 @@ final class ModexApplicationController: ObservableObject {
         model.settings = settings
         if settings.intelligence.enabled == false || settings.intelligence.provider == .off {
             model.intelligenceConnectionState = .off
+            model.runningAgentInsightIDs.removeAll()
         } else if oldSettings.intelligence != settings.intelligence {
             model.intelligenceConnectionState = .unknown
         }
@@ -109,13 +121,65 @@ final class ModexApplicationController: ObservableObject {
         }
 
         model.intelligenceConnectionState = .testing
-        let provider = settings.intelligence.provider
+        let intelligence = settings.intelligence
         Task.detached(priority: .utility) { [weak self] in
-            let result = Self.runIntelligenceConnectionTest(provider: provider)
+            let result = await Self.runIntelligenceConnectionTest(settings: intelligence)
             await MainActor.run {
                 self?.model.intelligenceConnectionState = result
             }
         }
+    }
+
+    func requestAgentInsight(_ insight: ModexInsight) {
+        guard settings.intelligence.enabled,
+              settings.intelligence.provider != .off,
+              let summary = latestSummary
+        else {
+            model.intelligenceConnectionState = settings.intelligence.enabled ? .unknown : .off
+            return
+        }
+
+        let baseInsight = model.insights.first { $0.id == insight.id } ?? insight
+        let request = agentEvidenceBuilder.request(
+            for: baseInsight,
+            summary: summary,
+            history: model.history,
+            includeCommandNames: true
+        )
+
+        agentInsightTasks[baseInsight.id]?.cancel()
+        model.agentInsightErrors[baseInsight.id] = nil
+        model.runningAgentInsightIDs.insert(baseInsight.id)
+
+        let settings = settings.intelligence
+        let historyStore = historyStore
+        agentInsightTasks[baseInsight.id] = Task.detached(priority: .utility) { [weak self] in
+            do {
+                let result = try await Self.runAgentInsight(request: request, settings: settings)
+                try? historyStore?.save(agentInsight: result)
+                await MainActor.run {
+                    self?.agentInsightTasks[baseInsight.id] = nil
+                    self?.model.runningAgentInsightIDs.remove(baseInsight.id)
+                    self?.model.agentInsightErrors[baseInsight.id] = nil
+                    self?.model.agentInsightResults[baseInsight.id] = result
+                    self?.model.intelligenceConnectionState = .connected(result.generatedAt)
+                }
+            } catch {
+                await MainActor.run {
+                    self?.agentInsightTasks[baseInsight.id] = nil
+                    self?.model.runningAgentInsightIDs.remove(baseInsight.id)
+                    let message = Self.intelligenceErrorMessage(error)
+                    self?.model.agentInsightErrors[baseInsight.id] = message
+                    self?.model.intelligenceConnectionState = .failed(message)
+                }
+            }
+        }
+    }
+
+    func flushAgentInsightCache() {
+        try? historyStore?.deleteAgentInsightResults()
+        model.agentInsightResults.removeAll()
+        model.agentInsightErrors.removeAll()
     }
 
     func quit() {
@@ -172,28 +236,58 @@ final class ModexApplicationController: ObservableObject {
     }
 
     nonisolated private static func runIntelligenceConnectionTest(
-        provider: ModexIntelligenceProvider
-    ) -> ModexIntelligenceConnectionState {
-        switch provider {
+        settings: ModexIntelligenceSettings
+    ) async -> ModexIntelligenceConnectionState {
+        switch settings.provider {
         case .off:
             return .off
         case .localCodex:
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["codex", "--version"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
             do {
-                try process.run()
-                process.waitUntilExit()
-                if process.terminationStatus == 0 {
-                    return .limited("Codex CLI found, but no structured insight bridge is configured yet.")
-                }
-                return .failed("Codex CLI test failed.")
+                let service = LocalCodexAgentInsightService(
+                    configuration: settings.localCodexConfiguration
+                )
+                let result = try await service.testConnection()
+                return .connected(result.generatedAt)
             } catch {
-                return .failed("Codex CLI was not found on the app launch PATH.")
+                return .failed(intelligenceErrorMessage(error))
             }
+        }
+    }
+
+    nonisolated private static func runAgentInsight(
+        request: ModexAgentInsightRequest,
+        settings: ModexIntelligenceSettings
+    ) async throws -> ModexAgentInsightResult {
+        switch settings.provider {
+        case .off:
+            throw ModexAgentInsightServiceError.codexUnavailable("off")
+        case .localCodex:
+            let service = LocalCodexAgentInsightService(
+                configuration: settings.localCodexConfiguration
+            )
+            return try await service.analyze(request: request)
+        }
+    }
+
+    nonisolated private static func intelligenceErrorMessage(_ error: Error) -> String {
+        guard let error = error as? ModexAgentInsightServiceError else {
+            return String(describing: error)
+        }
+
+        switch error {
+        case .codexUnavailable(let path):
+            return ModexStrings.format("config.intelligenceErrorUnavailable", path)
+        case .timedOut(let seconds):
+            return ModexStrings.format("config.intelligenceErrorTimedOut", seconds)
+        case .processFailed(let status, let detail):
+            if detail.isEmpty {
+                return ModexStrings.format("config.intelligenceErrorProcess", status)
+            }
+            return ModexStrings.format("config.intelligenceErrorProcessDetail", status, detail)
+        case .missingOutput:
+            return ModexStrings.text("config.intelligenceErrorMissingOutput")
+        case .invalidOutput(let detail):
+            return ModexStrings.format("config.intelligenceErrorInvalidOutput", detail)
         }
     }
 
