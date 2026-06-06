@@ -461,12 +461,9 @@ private final class FastCodexJSONLParser {
     static let parserMode = "streaming-byte-scan"
 
     private let configuration: CodexSessionScannerConfiguration
-    private let iso8601WithFractionalSeconds = ISO8601DateFormatter()
-    private let iso8601 = ISO8601DateFormatter()
 
     init(configuration: CodexSessionScannerConfiguration) {
         self.configuration = configuration
-        iso8601WithFractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     }
 
     func parse(fileURL: URL, fallbackModificationDate: Date) throws -> ParseResult {
@@ -580,8 +577,8 @@ private final class FastCodexJSONLParser {
         let payloadType = isSessionMeta ? nil : FastJSONValue.string(after: FastJSONPattern.payloadType, in: line)
         let isTokenCount = topLevelType == "token_count" || payloadType == "token_count"
         let isTurnContext = topLevelType == "turn_context" || payloadType == "turn_context"
-        let isCompaction = topLevelType.localizedCaseInsensitiveContains("compact")
-            || payloadType?.localizedCaseInsensitiveContains("compact") == true
+        let isCompaction = topLevelType.contains("compact")
+            || payloadType?.contains("compact") == true
 
         guard isSessionMeta || isTokenCount || isTurnContext || isCompaction else {
             return
@@ -695,13 +692,7 @@ private final class FastCodexJSONLParser {
     }
 
     private func dateValue(after pattern: [UInt8], in bytes: Data.SubSequence) -> Date? {
-        guard let value = FastJSONValue.string(after: pattern, in: bytes) else {
-            return nil
-        }
-        if let date = iso8601WithFractionalSeconds.date(from: value) {
-            return date
-        }
-        return iso8601.date(from: value)
+        FastJSONValue.iso8601Date(after: pattern, in: bytes)
     }
 
 }
@@ -813,6 +804,13 @@ private enum FastJSONValue {
         return nil
     }
 
+    static func iso8601Date(after pattern: [UInt8], in bytes: Data.SubSequence) -> Date? {
+        guard let range = range(of: pattern, in: bytes) else {
+            return nil
+        }
+        return iso8601Date(startingAt: range.upperBound, in: bytes)
+    }
+
     static func object(after pattern: [UInt8], in bytes: Data.SubSequence) -> Data.SubSequence? {
         guard let range = range(of: pattern, in: bytes) else {
             return nil
@@ -849,6 +847,115 @@ private enum FastJSONValue {
         }
 
         return nil
+    }
+
+    private static func iso8601Date(startingAt start: Data.SubSequence.Index, in bytes: Data.SubSequence) -> Date? {
+        var index = start
+        guard let year = fixedInt(length: 4, index: &index, in: bytes),
+              consume(FastJSONPattern.minus, index: &index, in: bytes),
+              let month = fixedInt(length: 2, index: &index, in: bytes),
+              consume(FastJSONPattern.minus, index: &index, in: bytes),
+              let day = fixedInt(length: 2, index: &index, in: bytes),
+              consume(FastJSONPattern.uppercaseT, index: &index, in: bytes),
+              let hour = fixedInt(length: 2, index: &index, in: bytes),
+              consume(FastJSONPattern.colon, index: &index, in: bytes),
+              let minute = fixedInt(length: 2, index: &index, in: bytes),
+              consume(FastJSONPattern.colon, index: &index, in: bytes),
+              let second = fixedInt(length: 2, index: &index, in: bytes)
+        else {
+            return nil
+        }
+
+        var fraction = 0.0
+        if index < bytes.endIndex, bytes[index] == FastJSONPattern.dot {
+            index = bytes.index(after: index)
+            var divisor = 10.0
+            while index < bytes.endIndex {
+                let byte = bytes[index]
+                guard byte >= FastJSONPattern.zero, byte <= FastJSONPattern.nine else {
+                    break
+                }
+                fraction += Double(byte - FastJSONPattern.zero) / divisor
+                divisor *= 10.0
+                index = bytes.index(after: index)
+            }
+        }
+
+        var timezoneOffsetSeconds = 0
+        if index < bytes.endIndex {
+            let byte = bytes[index]
+            if byte == FastJSONPattern.uppercaseZ {
+                index = bytes.index(after: index)
+            } else if byte == FastJSONPattern.plus || byte == FastJSONPattern.minus {
+                let sign = byte == FastJSONPattern.plus ? 1 : -1
+                index = bytes.index(after: index)
+                guard let offsetHours = fixedInt(length: 2, index: &index, in: bytes),
+                      consume(FastJSONPattern.colon, index: &index, in: bytes),
+                      let offsetMinutes = fixedInt(length: 2, index: &index, in: bytes)
+                else {
+                    return nil
+                }
+                timezoneOffsetSeconds = sign * ((offsetHours * 60 + offsetMinutes) * 60)
+            }
+        }
+
+        guard year > 0,
+              (1...12).contains(month),
+              (1...31).contains(day),
+              (0...23).contains(hour),
+              (0...59).contains(minute),
+              (0...60).contains(second)
+        else {
+            return nil
+        }
+
+        let days = daysSinceUnixEpoch(year: year, month: month, day: day)
+        let seconds = days * 86_400 + hour * 3_600 + minute * 60 + second - timezoneOffsetSeconds
+        return Date(timeIntervalSince1970: Double(seconds) + fraction)
+    }
+
+    private static func fixedInt(
+        length: Int,
+        index: inout Data.SubSequence.Index,
+        in bytes: Data.SubSequence
+    ) -> Int? {
+        var value = 0
+        for _ in 0..<length {
+            guard index < bytes.endIndex else {
+                return nil
+            }
+            let byte = bytes[index]
+            guard byte >= FastJSONPattern.zero, byte <= FastJSONPattern.nine else {
+                return nil
+            }
+            value = value * 10 + Int(byte - FastJSONPattern.zero)
+            index = bytes.index(after: index)
+        }
+        return value
+    }
+
+    private static func consume(
+        _ byte: UInt8,
+        index: inout Data.SubSequence.Index,
+        in bytes: Data.SubSequence
+    ) -> Bool {
+        guard index < bytes.endIndex, bytes[index] == byte else {
+            return false
+        }
+        index = bytes.index(after: index)
+        return true
+    }
+
+    private static func daysSinceUnixEpoch(year: Int, month: Int, day: Int) -> Int {
+        var adjustedYear = year
+        let adjustedMonth = month
+        adjustedYear -= adjustedMonth <= 2 ? 1 : 0
+        let era = (adjustedYear >= 0 ? adjustedYear : adjustedYear - 399) / 400
+        let yearOfEra = adjustedYear - era * 400
+        let monthPrime = adjustedMonth + (adjustedMonth > 2 ? -3 : 9)
+        let dayOfYear = (153 * monthPrime + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        return era * 146_097 + dayOfEra - 719_468
     }
 
     private static func jsonString(startingAt start: Data.SubSequence.Index, in bytes: Data.SubSequence) -> String? {
@@ -953,9 +1060,13 @@ private enum FastJSONPattern {
     static let lineFeed: UInt8 = 10
     static let space: UInt8 = 32
     static let quote: UInt8 = 34
+    static let plus: UInt8 = 43
     static let minus: UInt8 = 45
     static let slash: UInt8 = 47
     static let dot: UInt8 = 46
+    static let colon: UInt8 = 58
+    static let uppercaseT: UInt8 = 84
+    static let uppercaseZ: UInt8 = 90
     static let zero: UInt8 = 48
     static let nine: UInt8 = 57
     static let backslash: UInt8 = 92
