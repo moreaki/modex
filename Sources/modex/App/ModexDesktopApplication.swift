@@ -25,7 +25,16 @@ struct ModexDesktopApplication: App {
                 }
         }
         .menuBarExtraStyle(.window)
+
+        Window(ModexStrings.text("detail.title"), id: ModexWindowID.threadDetail) {
+            ModexThreadDetailWindow(model: controller.model)
+        }
+        .defaultSize(width: 1120, height: 720)
     }
+}
+
+enum ModexWindowID {
+    static let threadDetail = "thread-detail"
 }
 
 private struct ModexMenuBarLabel: View {

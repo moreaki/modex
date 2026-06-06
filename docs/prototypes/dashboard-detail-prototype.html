@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Modex Dashboard Prototype</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --panel-soft: #f0f2f6;
+      --ink: #1f2329;
+      --muted: #737985;
+      --faint: #dfe3ea;
+      --track: #e8ebf0;
+      --mint: #55c6b8;
+      --yellow: #d6ab3a;
+      --orange: #c67840;
+      --red: #cf5759;
+      --blue: #1677f2;
+      --shadow: 0 24px 70px rgba(25, 31, 40, .22);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+
+    [data-theme="black"] {
+      --bg: #10111a;
+      --panel: #1c1c2a;
+      --panel-soft: #232433;
+      --ink: #e6e9f8;
+      --muted: #a1a7bd;
+      --faint: #393b4f;
+      --track: #303142;
+      --shadow: 0 28px 90px rgba(0, 0, 0, .44);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(22, 119, 242, .12), transparent 260px),
+        var(--bg);
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    button {
+      color: inherit;
+      font: inherit;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .desktop {
+      min-height: 100vh;
+      padding: 30px;
+    }
+
+    .menu-bar {
+      position: fixed;
+      inset: 0 0 auto 0;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 18px;
+      padding: 0 22px;
+      color: white;
+      background: linear-gradient(180deg, #2583bd, #1d76ad);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, .22) inset;
+      z-index: 5;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 30px;
+      padding: 0 12px 0 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .16);
+      font-weight: 800;
+    }
+
+    .pulse-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: white;
+      background:
+        radial-gradient(circle at center, rgba(85, 198, 184, .22) 0 38%, transparent 39%),
+        conic-gradient(var(--orange) 0 81%, rgba(255, 255, 255, .24) 81% 100%);
+    }
+
+    .pulse-icon span {
+      width: 14px;
+      height: 8px;
+      border-left: 2px solid white;
+      border-right: 2px solid white;
+      transform: skewX(-18deg);
+      opacity: .94;
+    }
+
+    .workspace {
+      padding-top: 54px;
+      display: grid;
+      place-items: start center;
+      gap: 26px;
+    }
+
+    .popover {
+      width: min(940px, calc(100vw - 36px));
+      border-radius: 24px;
+      background: var(--panel);
+      border: 1px solid color-mix(in srgb, var(--faint), transparent 10%);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .popover::before {
+      content: "";
+      display: block;
+      width: 28px;
+      height: 28px;
+      background: var(--panel);
+      border-left: 1px solid var(--faint);
+      border-top: 1px solid var(--faint);
+      transform: rotate(45deg);
+      position: absolute;
+      margin-top: -14px;
+      margin-left: 470px;
+    }
+
+    .page {
+      display: none;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    .header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 26px 28px 18px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 25px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-weight: 750;
+      font-family: var(--mono);
+    }
+
+    .open-window {
+      padding: 9px 13px;
+      border-radius: 12px;
+      color: white;
+      background: var(--blue);
+      font-weight: 800;
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 16px;
+      padding: 0 28px 20px;
+    }
+
+    .panel {
+      background: var(--panel-soft);
+      border: 1px solid color-mix(in srgb, var(--faint), transparent 20%);
+      border-radius: 16px;
+      padding: 16px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .stat {
+      padding: 14px;
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--panel), transparent 12%);
+    }
+
+    .stat b {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      margin-bottom: 7px;
+      font-family: var(--mono);
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .limit-row {
+      display: grid;
+      grid-template-columns: 70px 1fr 190px;
+      align-items: center;
+      gap: 12px;
+      margin: 10px 0;
+      font-family: var(--mono);
+      font-size: 18px;
+    }
+
+    .limit-row label {
+      color: var(--muted);
+    }
+
+    .limit-bar {
+      height: 18px;
+      border-radius: 5px;
+      background:
+        linear-gradient(90deg, currentColor var(--fill), transparent var(--fill)),
+        repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 10px);
+      color: #b7bdd8;
+      overflow: hidden;
+    }
+
+    .limit-row strong {
+      font-weight: 850;
+    }
+
+    .insights {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 4px 0 0;
+    }
+
+    .chip {
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .chip b {
+      color: var(--ink);
+      font-family: var(--mono);
+    }
+
+    .section-title {
+      margin: 4px 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .top-threads {
+      padding: 0 28px 22px;
+    }
+
+    .thread-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) 140px 120px 148px;
+      gap: 14px;
+      align-items: center;
+      min-height: 72px;
+      padding: 12px 16px;
+      background: color-mix(in srgb, var(--panel-soft), transparent 28%);
+      border-top: 1px solid color-mix(in srgb, var(--faint), transparent 30%);
+    }
+
+    .thread-card:first-of-type {
+      border-top: 0;
+      border-radius: 16px 16px 0 0;
+    }
+
+    .thread-card:last-of-type {
+      border-radius: 0 0 16px 16px;
+    }
+
+    .thread-card h3 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.15;
+    }
+
+    .thread-card p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .context-cell {
+      display: grid;
+      grid-template-columns: 78px 48px;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-weight: 850;
+    }
+
+    .mini-bar {
+      height: 10px;
+      border-radius: 999px;
+      background: var(--track);
+      overflow: hidden;
+    }
+
+    .mini-bar i {
+      display: block;
+      width: var(--v);
+      height: 100%;
+      border-radius: inherit;
+      background: var(--c);
+    }
+
+    .thread-metric {
+      font-family: var(--mono);
+      font-weight: 850;
+      text-align: right;
+    }
+
+    .thread-metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-family: var(--sans);
+      font-weight: 750;
+      margin-top: 4px;
+    }
+
+    .action-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 28px 18px;
+      background: color-mix(in srgb, var(--panel-soft), transparent 28%);
+      border-top: 1px solid var(--faint);
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .icon-btn {
+      min-width: 42px;
+      height: 38px;
+      padding: 0 12px;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 850;
+    }
+
+    .icon-btn:hover,
+    .icon-btn.active {
+      color: var(--blue);
+      background: color-mix(in srgb, var(--blue), transparent 88%);
+    }
+
+    .window {
+      width: min(1180px, calc(100vw - 36px));
+      min-height: 700px;
+      border-radius: 22px;
+      background: var(--panel);
+      border: 1px solid var(--faint);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .window-top {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      padding: 24px 28px 18px;
+      border-bottom: 1px solid var(--faint);
+    }
+
+    .filters {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 14px 28px;
+      background: color-mix(in srgb, var(--panel-soft), transparent 30%);
+      border-bottom: 1px solid var(--faint);
+    }
+
+    .search,
+    .select {
+      height: 36px;
+      border-radius: 12px;
+      border: 1px solid var(--faint);
+      background: var(--panel);
+      color: var(--ink);
+      padding: 0 12px;
+      font: inherit;
+      font-weight: 750;
+    }
+
+    .search {
+      min-width: 260px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      padding: 14px 28px 0;
+    }
+
+    .tab {
+      height: 38px;
+      padding: 0 14px;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 850;
+    }
+
+    .tab.active {
+      color: var(--blue);
+      background: color-mix(in srgb, var(--blue), transparent 88%);
+    }
+
+    .tab-panel {
+      display: none;
+      padding: 14px 28px 28px;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--faint);
+    }
+
+    td {
+      padding: 13px 10px;
+      border-bottom: 1px solid color-mix(in srgb, var(--faint), transparent 35%);
+      font-weight: 750;
+      vertical-align: middle;
+    }
+
+    .mono {
+      font-family: var(--mono);
+      font-weight: 850;
+    }
+
+    .thread-name {
+      font-size: 15px;
+      font-weight: 850;
+    }
+
+    .thread-sub {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .big-metric {
+      padding: 18px;
+      border-radius: 16px;
+      background: var(--panel-soft);
+      min-height: 120px;
+    }
+
+    .big-metric span {
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .big-metric b {
+      display: block;
+      margin-top: 12px;
+      font-size: 30px;
+      font-family: var(--mono);
+    }
+
+    .side-by-side {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--faint), transparent 30%);
+      font-weight: 750;
+    }
+
+    .drawer {
+      display: none;
+      padding: 18px 28px;
+      background: color-mix(in srgb, var(--blue), transparent 91%);
+      border-top: 1px solid var(--faint);
+    }
+
+    .drawer.active {
+      display: block;
+    }
+
+    .drawer h2 {
+      margin: 0 0 12px;
+      font-size: 19px;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+
+    .setting {
+      padding: 13px;
+      border-radius: 13px;
+      background: var(--panel);
+      border: 1px solid var(--faint);
+    }
+
+    .setting label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 860px) {
+      .dashboard-grid,
+      .side-by-side,
+      .metric-grid,
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .thread-card {
+        grid-template-columns: 1fr;
+      }
+
+      .thread-metric {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="menu-bar">
+    <span>Wi-Fi</span>
+    <span>Battery 55%</span>
+    <button class="status-pill" data-action="dashboard">
+      <span class="pulse-icon"><span></span></span>
+      <span>81%</span>
+    </button>
+  </div>
+
+  <main class="desktop" data-theme="system">
+    <div class="workspace">
+      <section id="dashboard" class="page active">
+        <div class="popover">
+          <header class="header">
+            <div class="title">
+              <h1>Modex Dashboard</h1>
+              <p>10 active threads · 605M tokens · scan 1.45s · cache 84%</p>
+            </div>
+            <div class="header-meta">
+              <span>Updated 12:57</span>
+              <button class="open-window" data-action="details">Open Detail</button>
+            </div>
+          </header>
+
+          <div class="dashboard-grid">
+            <section class="panel">
+              <div class="section-title">Now</div>
+              <div class="stats">
+                <div class="stat"><b>81%</b><span>highest context</span></div>
+                <div class="stat"><b>58%</b><span>average context</span></div>
+                <div class="stat"><b>2</b><span>failed commands</span></div>
+                <div class="stat"><b>84%</b><span>cache hits</span></div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="section-title">Codex Limits</div>
+              <div class="limit-row">
+                <label>5h</label>
+                <div class="limit-bar" style="--fill: 83%"></div>
+                <strong>83% left</strong>
+              </div>
+              <div class="limit-row">
+                <label>7d</label>
+                <div class="limit-bar" style="--fill: 79%"></div>
+                <strong>79% left</strong>
+              </div>
+              <p style="margin: 12px 0 0; color: var(--muted); font-weight: 750;">5h resets 13:51 · 7d resets Jun 11 · trend +4% today</p>
+            </section>
+
+            <div class="insights">
+              <span class="chip">fastest growth <b>+34K/turn</b></span>
+              <span class="chip">slowest turn <b>4m 14s</b></span>
+              <span class="chip">cached input <b>78%</b></span>
+              <span class="chip">files changed <b>18</b></span>
+              <span class="chip">archived <b>off</b></span>
+            </div>
+          </div>
+
+          <section class="top-threads">
+            <div class="section-title">Top Threads</div>
+            <article class="thread-card">
+              <div>
+                <h3>Inspect project behavior</h3>
+                <p>modex · gpt-5.5 · medium · 7 min ago</p>
+              </div>
+              <div class="context-cell"><div class="mini-bar"><i style="--v: 81%; --c: var(--orange)"></i></div><span>81%</span></div>
+              <div class="thread-metric">62M<span>total tokens</span></div>
+              <div class="thread-metric">126K<span>median · 1 fail</span></div>
+            </article>
+            <article class="thread-card">
+              <div>
+                <h3>Investigate Camunda TTL history</h3>
+                <p>sigma-backend · gpt-5.5 · high · 3d ago</p>
+              </div>
+              <div class="context-cell"><div class="mini-bar"><i style="--v: 73%; --c: var(--orange)"></i></div><span>73%</span></div>
+              <div class="thread-metric">9.9M<span>total tokens</span></div>
+              <div class="thread-metric">146K<span>median · clean</span></div>
+            </article>
+            <article class="thread-card">
+              <div>
+                <h3>Document approverId for Apigee</h3>
+                <p>sigma-backend · gpt-5.5 · high · 3d ago</p>
+              </div>
+              <div class="context-cell"><div class="mini-bar"><i style="--v: 73%; --c: var(--orange)"></i></div><span>73%</span></div>
+              <div class="thread-metric">12M<span>total tokens</span></div>
+              <div class="thread-metric">115K<span>median · 4 files</span></div>
+            </article>
+            <article class="thread-card">
+              <div>
+                <h3>Locate unused deleteFile method</h3>
+                <p>sigma-backend · gpt-5.5 · medium · 3d ago</p>
+              </div>
+              <div class="context-cell"><div class="mini-bar"><i style="--v: 40%; --c: var(--mint)"></i></div><span>40%</span></div>
+              <div class="thread-metric">648K<span>total tokens</span></div>
+              <div class="thread-metric">72K<span>median · clean</span></div>
+            </article>
+            <article class="thread-card">
+              <div>
+                <h3>Remove row highlighting</h3>
+                <p>modex · gpt-5.5 · medium · 18h ago</p>
+              </div>
+              <div class="context-cell"><div class="mini-bar"><i style="--v: 65%; --c: var(--yellow)"></i></div><span>65%</span></div>
+              <div class="thread-metric">10M<span>total tokens</span></div>
+              <div class="thread-metric">139K<span>median · 2 files</span></div>
+            </article>
+          </section>
+
+          <div id="timings" class="drawer">
+            <h2>Last Read</h2>
+            <div class="stats">
+              <div class="stat"><b>1.45s</b><span>duration</span></div>
+              <div class="stat"><b>121MB</b><span>read</span></div>
+              <div class="stat"><b>84%</b><span>cache hit ratio</span></div>
+              <div class="stat"><b>2x</b><span>active concurrency</span></div>
+            </div>
+          </div>
+
+          <div id="settings" class="drawer">
+            <h2>Configuration Preview</h2>
+            <div class="settings-grid">
+              <div class="setting"><label>Scope</label><strong>Active threads only</strong></div>
+              <div class="setting"><label>Refresh</label><strong>60 seconds</strong></div>
+              <div class="setting"><label>Theme</label><strong>System</strong></div>
+            </div>
+          </div>
+
+          <footer class="action-bar">
+            <div class="toolbar">
+              <button class="icon-btn" data-action="refresh">Refresh</button>
+              <button class="icon-btn" data-toggle="timings">Timings</button>
+              <button class="icon-btn" data-action="details">Detail</button>
+              <button class="icon-btn" data-toggle="settings">Settings</button>
+            </div>
+            <div class="toolbar">
+              <button class="icon-btn" data-theme-toggle>Theme</button>
+              <button class="icon-btn">Quit</button>
+            </div>
+          </footer>
+        </div>
+      </section>
+
+      <section id="details" class="page">
+        <div class="window">
+          <header class="window-top">
+            <div class="title">
+              <h1>Thread Detail</h1>
+              <p>All active threads · 10 scanned · cache 84% · updated 12:57</p>
+            </div>
+            <div class="toolbar">
+              <button class="icon-btn" data-action="dashboard">Dashboard</button>
+              <button class="open-window" data-action="dashboard">Done</button>
+            </div>
+          </header>
+
+          <div class="filters">
+            <input class="search" value="" placeholder="Search threads">
+            <select class="select"><option>Active only</option><option>Include archived</option></select>
+            <select class="select"><option>All projects</option><option>modex</option><option>sigma-backend</option></select>
+            <select class="select"><option>Sort by attention</option><option>Sort by context</option><option>Sort by updated</option></select>
+            <button class="icon-btn">Warnings</button>
+            <button class="icon-btn">Failures</button>
+          </div>
+
+          <nav class="tabs" aria-label="Thread detail tabs">
+            <button class="tab active" data-tab="overview">Overview</button>
+            <button class="tab" data-tab="tokens">Tokens</button>
+            <button class="tab" data-tab="performance">Performance</button>
+            <button class="tab" data-tab="activity">Activity</button>
+            <button class="tab" data-tab="diagnostics">Diagnostics</button>
+          </nav>
+
+          <section id="overview" class="tab-panel active">
+            <table>
+              <thead>
+                <tr><th>Thread</th><th>Context</th><th>Total</th><th>Median</th><th>Avg</th><th>Model</th><th>Updated</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><div class="thread-name">Inspect project behavior</div><div class="thread-sub">modex · Session 019e9902</div></td>
+                  <td><div class="context-cell"><div class="mini-bar"><i style="--v: 81%; --c: var(--orange)"></i></div><span>81%</span></div></td>
+                  <td class="mono">62M</td><td class="mono">126K</td><td class="mono">124K</td><td>gpt-5.5 · medium</td><td class="mono">7m</td>
+                </tr>
+                <tr>
+                  <td><div class="thread-name">Explain empty content type</div><div class="thread-sub">sigma-backend · Session 019e980b</div></td>
+                  <td><div class="context-cell"><div class="mini-bar"><i style="--v: 83%; --c: var(--orange)"></i></div><span>83%</span></div></td>
+                  <td class="mono">44M</td><td class="mono">148K</td><td class="mono">135K</td><td>gpt-5.5 · high</td><td class="mono">1d</td>
+                </tr>
+                <tr>
+                  <td><div class="thread-name">Remove row highlighting</div><div class="thread-sub">modex · Session 019e9713</div></td>
+                  <td><div class="context-cell"><div class="mini-bar"><i style="--v: 65%; --c: var(--yellow)"></i></div><span>65%</span></div></td>
+                  <td class="mono">10M</td><td class="mono">139K</td><td class="mono">123K</td><td>gpt-5.5 · medium</td><td class="mono">18h</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="tokens" class="tab-panel">
+            <div class="metric-grid">
+              <div class="big-metric"><span>Cached input</span><b>78%</b></div>
+              <div class="big-metric"><span>Reasoning share</span><b>14%</b></div>
+              <div class="big-metric"><span>Growth</span><b>+34K</b></div>
+              <div class="big-metric"><span>Compactions</span><b>74</b></div>
+            </div>
+            <div class="side-by-side">
+              <div class="panel"><div class="section-title">Highest Growth</div><ul class="list"><li><span>Inspect project behavior</span><b>+34K/turn</b></li><li><span>Explain empty content type</span><b>+28K/turn</b></li></ul></div>
+              <div class="panel"><div class="section-title">Near Warning</div><ul class="list"><li><span>Explain empty content type</span><b>83%</b></li><li><span>Inspect project behavior</span><b>81%</b></li></ul></div>
+            </div>
+          </section>
+
+          <section id="performance" class="tab-panel">
+            <div class="metric-grid">
+              <div class="big-metric"><span>Median duration</span><b>52s</b></div>
+              <div class="big-metric"><span>TTFT median</span><b>2.1s</b></div>
+              <div class="big-metric"><span>Slowest turn</span><b>4m14s</b></div>
+              <div class="big-metric"><span>Tool-heavy turns</span><b>9</b></div>
+            </div>
+          </section>
+
+          <section id="activity" class="tab-panel">
+            <div class="metric-grid">
+              <div class="big-metric"><span>Shell commands</span><b>116</b></div>
+              <div class="big-metric"><span>Failed commands</span><b>2</b></div>
+              <div class="big-metric"><span>Files changed</span><b>18</b></div>
+              <div class="big-metric"><span>Tool calls</span><b>48</b></div>
+            </div>
+            <div class="panel" style="margin-top: 16px;"><div class="section-title">Git Context</div><ul class="list"><li><span>modex</span><b>main · 17d3fc2</b></li><li><span>sigma-backend</span><b>feature/apigee · 8a42f0c</b></li></ul></div>
+          </section>
+
+          <section id="diagnostics" class="tab-panel">
+            <div class="metric-grid">
+              <div class="big-metric"><span>Scan duration</span><b>1.45s</b></div>
+              <div class="big-metric"><span>Bytes read</span><b>121MB</b></div>
+              <div class="big-metric"><span>Cache saved</span><b>684MB</b></div>
+              <div class="big-metric"><span>Oversized lines</span><b>19</b></div>
+            </div>
+            <div class="panel" style="margin-top: 16px;"><div class="section-title">Slowest Files</div><ul class="list"><li><span>Inspect project behavior</span><b>1.05s · 60MB</b></li><li><span>Explain empty content type</span><b>377ms · 22.9MB</b></li></ul></div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const pages = {
+      dashboard: document.getElementById("dashboard"),
+      details: document.getElementById("details")
+    };
+
+    function showPage(name) {
+      Object.entries(pages).forEach(([key, element]) => {
+        element.classList.toggle("active", key === name);
+      });
+    }
+
+    document.querySelectorAll("[data-action]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const action = button.getAttribute("data-action");
+        if (action === "dashboard" || action === "details") showPage(action);
+        if (action === "refresh") {
+          button.textContent = "Refreshed";
+          setTimeout(() => button.textContent = "Refresh", 900);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.getAttribute("data-toggle");
+        const drawer = document.getElementById(id);
+        const isOpen = drawer.classList.contains("active");
+        document.querySelectorAll(".drawer").forEach((item) => item.classList.remove("active"));
+        document.querySelectorAll("[data-toggle]").forEach((item) => item.classList.remove("active"));
+        if (!isOpen) {
+          drawer.classList.add("active");
+          button.classList.add("active");
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-tab]").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const id = tab.getAttribute("data-tab");
+        document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("active", item === tab));
+        document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === id));
+      });
+    });
+
+    document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
+      const root = document.querySelector(".desktop");
+      root.dataset.theme = root.dataset.theme === "black" ? "system" : "black";
+    });
+  </script>
+</body>
+</html>

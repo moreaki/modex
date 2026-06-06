@@ -577,10 +577,22 @@ private final class FastCodexJSONLParser {
         let payloadType = isSessionMeta ? nil : FastJSONValue.string(after: FastJSONPattern.payloadType, in: line)
         let isTokenCount = topLevelType == "token_count" || payloadType == "token_count"
         let isTurnContext = topLevelType == "turn_context" || payloadType == "turn_context"
+        let isTaskComplete = payloadType == "task_complete"
+        let isCommandEnd = payloadType == "exec_command_end"
+        let isToolCall = topLevelType == "response_item" && Self.isToolCallPayloadType(payloadType)
+        let hasFileChanges = FastJSONValue.contains(FastJSONPattern.changes, in: line)
         let isCompaction = topLevelType.contains("compact")
             || payloadType?.contains("compact") == true
 
-        guard isSessionMeta || isTokenCount || isTurnContext || isCompaction else {
+        guard isSessionMeta
+            || isTokenCount
+            || isTurnContext
+            || isTaskComplete
+            || isCommandEnd
+            || isToolCall
+            || hasFileChanges
+            || isCompaction
+        else {
             return
         }
 
@@ -605,9 +617,35 @@ private final class FastCodexJSONLParser {
             applyTurnContext(line: line, snapshot: &snapshot)
         }
 
+        if isTaskComplete {
+            applyTaskComplete(line: line, snapshot: &snapshot)
+        }
+
+        if isCommandEnd {
+            applyCommandEnd(line: line, snapshot: &snapshot)
+        }
+
+        if isToolCall {
+            snapshot.toolCallEvents += 1
+        }
+
+        if hasFileChanges {
+            snapshot.changedFileEvents += FastJSONValue.topLevelObjectKeyCount(
+                after: FastJSONPattern.changes,
+                in: line
+            )
+        }
+
         if isCompaction {
             snapshot.compactionEvents += 1
         }
+    }
+
+    private static func isToolCallPayloadType(_ payloadType: String?) -> Bool {
+        guard let payloadType else {
+            return false
+        }
+        return payloadType.contains("call") && payloadType.contains("output") == false
     }
 
     private func applyTurnContext(line: Data.SubSequence, snapshot: inout SessionSnapshot) {
@@ -646,6 +684,26 @@ private final class FastCodexJSONLParser {
                 rateLimits: rateLimits(line)
             )
         )
+    }
+
+    private func applyTaskComplete(line: Data.SubSequence, snapshot: inout SessionSnapshot) {
+        if let duration = FastJSONValue.int(after: FastJSONPattern.durationMilliseconds, in: line), duration >= 0 {
+            snapshot.turnDurationsMilliseconds.append(duration)
+        }
+        if let timeToFirstToken = FastJSONValue.int(after: FastJSONPattern.timeToFirstTokenMilliseconds, in: line),
+           timeToFirstToken >= 0
+        {
+            snapshot.timeToFirstTokenMilliseconds.append(timeToFirstToken)
+        }
+    }
+
+    private func applyCommandEnd(line: Data.SubSequence, snapshot: inout SessionSnapshot) {
+        snapshot.commandEvents += 1
+        if let exitCode = FastJSONValue.int(after: FastJSONPattern.exitCode, in: line),
+           exitCode != 0
+        {
+            snapshot.failedCommandEvents += 1
+        }
     }
 
     private func rateLimits(_ line: Data.SubSequence) -> CodexRateLimits? {
@@ -847,6 +905,54 @@ private enum FastJSONValue {
         }
 
         return nil
+    }
+
+    static func contains(_ pattern: [UInt8], in bytes: Data.SubSequence) -> Bool {
+        range(of: pattern, in: bytes) != nil
+    }
+
+    static func topLevelObjectKeyCount(after pattern: [UInt8], in bytes: Data.SubSequence) -> Int {
+        guard let object = object(after: pattern, in: bytes) else {
+            return 0
+        }
+
+        var index = object.startIndex
+        var depth = 0
+        var count = 0
+        var insideString = false
+        var escaping = false
+        var possibleKeyStart: Data.SubSequence.Index?
+
+        while index < object.endIndex {
+            let byte = object[index]
+            if insideString {
+                if escaping {
+                    escaping = false
+                } else if byte == FastJSONPattern.backslash {
+                    escaping = true
+                } else if byte == FastJSONPattern.quote {
+                    insideString = false
+                }
+            } else if byte == FastJSONPattern.quote {
+                insideString = true
+                if depth == 0 {
+                    possibleKeyStart = index
+                }
+            } else if byte == FastJSONPattern.openBrace {
+                depth += 1
+            } else if byte == FastJSONPattern.closeBrace {
+                depth = max(0, depth - 1)
+            } else if byte == FastJSONPattern.colon, depth == 0, possibleKeyStart != nil {
+                count += 1
+                possibleKeyStart = nil
+            } else if byte == FastJSONPattern.comma, depth == 0 {
+                possibleKeyStart = nil
+            }
+
+            index = object.index(after: index)
+        }
+
+        return count
     }
 
     private static func iso8601Date(startingAt start: Data.SubSequence.Index, in bytes: Data.SubSequence) -> Date? {
@@ -1061,6 +1167,7 @@ private enum FastJSONPattern {
     static let space: UInt8 = 32
     static let quote: UInt8 = 34
     static let plus: UInt8 = 43
+    static let comma: UInt8 = 44
     static let minus: UInt8 = 45
     static let slash: UInt8 = 47
     static let dot: UInt8 = 46
@@ -1093,6 +1200,10 @@ private enum FastJSONPattern {
     static let effort = Array("\"effort\":\"".utf8)
     static let summary = Array("\"summary\":\"".utf8)
     static let realtimeActive = Array("\"realtime_active\":".utf8)
+    static let durationMilliseconds = Array("\"duration_ms\":".utf8)
+    static let timeToFirstTokenMilliseconds = Array("\"time_to_first_token_ms\":".utf8)
+    static let exitCode = Array("\"exit_code\":".utf8)
+    static let changes = Array("\"changes\":{".utf8)
     static let lastTokenUsage = Array("\"last_token_usage\":{".utf8)
     static let totalTokenUsage = Array("\"total_token_usage\":{".utf8)
     static let modelContextWindow = Array("\"model_context_window\":".utf8)

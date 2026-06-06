@@ -95,6 +95,12 @@ public struct SessionSnapshot: Equatable, Sendable {
     public var updatedAt: Date?
     public var tokenEvents: [TokenEvent]
     public var compactionEvents: Int
+    public var turnDurationsMilliseconds: [Int]
+    public var timeToFirstTokenMilliseconds: [Int]
+    public var commandEvents: Int
+    public var failedCommandEvents: Int
+    public var toolCallEvents: Int
+    public var changedFileEvents: Int
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
@@ -109,6 +115,12 @@ public struct SessionSnapshot: Equatable, Sendable {
         updatedAt = nil
         tokenEvents = []
         compactionEvents = 0
+        turnDurationsMilliseconds = []
+        timeToFirstTokenMilliseconds = []
+        commandEvents = 0
+        failedCommandEvents = 0
+        toolCallEvents = 0
+        changedFileEvents = 0
     }
 
     public var latestTokenEvent: TokenEvent? {
@@ -157,6 +169,65 @@ public struct SessionSnapshot: Equatable, Sendable {
         tokenEvents.reversed().first { $0.rateLimits != nil }?.rateLimits
     }
 
+    public var completedTurns: Int {
+        turnDurationsMilliseconds.count
+    }
+
+    public var lastTurnDurationMilliseconds: Int? {
+        turnDurationsMilliseconds.last
+    }
+
+    public var medianTurnDurationMilliseconds: Int? {
+        medianValue(turnDurationsMilliseconds.sorted())
+    }
+
+    public var averageTurnDurationMilliseconds: Int? {
+        guard turnDurationsMilliseconds.isEmpty == false else {
+            return nil
+        }
+        return turnDurationsMilliseconds.reduce(0, +) / turnDurationsMilliseconds.count
+    }
+
+    public var medianTimeToFirstTokenMilliseconds: Int? {
+        medianValue(timeToFirstTokenMilliseconds.sorted())
+    }
+
+    public var latestTimeToFirstTokenMilliseconds: Int? {
+        timeToFirstTokenMilliseconds.last
+    }
+
+    public var cachedInputPercent: Double? {
+        guard let usage = latestTokenEvent?.totalUsage,
+              usage.inputTokens > 0
+        else {
+            return nil
+        }
+        return min(max(Double(usage.cachedInputTokens) / Double(usage.inputTokens) * 100, 0), 100)
+    }
+
+    public var reasoningOutputPercent: Double? {
+        guard let usage = latestTokenEvent?.totalUsage else {
+            return nil
+        }
+        let totalOutput = usage.outputTokens + usage.reasoningOutputTokens
+        guard totalOutput > 0 else {
+            return nil
+        }
+        return min(max(Double(usage.reasoningOutputTokens) / Double(totalOutput) * 100, 0), 100)
+    }
+
+    public var averageContextGrowthPerTurnTokens: Int {
+        let values = tokenEvents.map(\.lastUsage.inputTokens).filter { $0 > 0 }
+        guard values.isEmpty == false else {
+            return 0
+        }
+        return values.reduce(0, +) / values.count
+    }
+
+    public var latestContextGrowthTokens: Int {
+        latestTokenEvent?.lastUsage.inputTokens ?? 0
+    }
+
     private var turnTokenTotals: [Int] {
         tokenEvents.map(\.lastUsage.totalTokens).filter { $0 > 0 }
     }
@@ -170,6 +241,13 @@ public struct SessionSnapshot: Equatable, Sendable {
             return (values[middle - 1] + values[middle]) / 2
         }
         return values[middle]
+    }
+
+    private func medianValue(_ values: [Int]) -> Int? {
+        guard values.isEmpty == false else {
+            return nil
+        }
+        return Self.median(values)
     }
 }
 

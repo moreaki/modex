@@ -47,6 +47,10 @@ import Testing
     #expect(summary.latestSession?.contextLeftPercent == 70.0)
     #expect(summary.latestSession?.contextUsedTokens == 300)
     #expect(summary.latestSession?.contextWindow == 1000)
+    #expect(summary.latestSession?.cachedInputPercent == 7.5)
+    #expect(summary.latestSession?.reasoningOutputPercent == 12.0 / 82.0 * 100.0)
+    #expect(summary.latestSession?.averageContextGrowthPerTurnTokens == 200)
+    #expect(summary.latestSession?.latestContextGrowthTokens == 300)
     #expect(summary.latestSession?.latestRateLimits?.primary?.usedPercent == 9.0)
     #expect(summary.latestSession?.latestRateLimits?.primary?.leftPercent == 91.0)
     #expect(summary.latestSession?.latestRateLimits?.primary?.windowMinutes == 300)
@@ -68,6 +72,45 @@ import Testing
     #expect((summary.scanMetrics?.bytesRead ?? 0) > 0)
     #expect((summary.scanMetrics?.durationSeconds ?? 0) >= 0)
     #expect(summary.scanMetrics?.parserMode == "streaming-byte-scan")
+}
+
+@Test func parsesSessionActivityAndPerformanceMetrics() throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("activity.jsonl")
+    let jsonl = """
+    {"timestamp":"2026-06-05T09:00:00.000Z","type":"session_meta","payload":{"id":"activity","cwd":"/tmp/activity"}}
+    {"timestamp":"2026-06-05T09:01:00.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1780667467,"duration_ms":48071,"time_to_first_token_ms":5294}}
+    {"timestamp":"2026-06-05T09:02:00.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-2","completed_at":1780667468,"duration_ms":120000,"time_to_first_token_ms":1800}}
+    {"timestamp":"2026-06-05T09:03:00.000Z","type":"event_msg","payload":{"type":"exec_command_end","exit_code":0,"command":["/bin/echo","ok"],"status":"completed"}}
+    {"timestamp":"2026-06-05T09:04:00.000Z","type":"event_msg","payload":{"type":"exec_command_end","exit_code":2,"command":["/bin/false"],"status":"completed"}}
+    {"timestamp":"2026-06-05T09:05:00.000Z","type":"response_item","payload":{"type":"function_call","call_id":"call-1","name":"web_search","arguments":"{}"}}
+    {"timestamp":"2026-06-05T09:06:00.000Z","type":"event_msg","payload":{"changes":{"/tmp/activity/A.swift":{"type":"modify"},"/tmp/activity/B.swift":{"type":"create"}}}}
+    """
+    try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let session = try #require(
+        CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+            .scan()
+            .first
+    )
+
+    #expect(session.completedTurns == 2)
+    #expect(session.lastTurnDurationMilliseconds == 120_000)
+    #expect(session.medianTurnDurationMilliseconds == 84_035)
+    #expect(session.averageTurnDurationMilliseconds == 84_035)
+    #expect(session.latestTimeToFirstTokenMilliseconds == 1_800)
+    #expect(session.medianTimeToFirstTokenMilliseconds == 3_547)
+    #expect(session.commandEvents == 2)
+    #expect(session.failedCommandEvents == 1)
+    #expect(session.toolCallEvents == 1)
+    #expect(session.changedFileEvents == 2)
 }
 
 @Test func scanParsesRecentFilesConcurrentlyInModificationOrder() throws {

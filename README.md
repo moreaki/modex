@@ -128,3 +128,5 @@ open .build/Modex.app
 Screenshots are useful for reviewing SwiftUI menu-bar details that are hard to judge from code alone: status icon rendering, column alignment, hover states, text clipping, focus highlights, and whether the popup shifts unexpectedly.
 
 Parser benchmarks live in `Benchmarks/ParserComparison`. They compare the current Modex streaming parser with alternate JSON parsers without adding benchmark-only dependencies to the app target.
+
+The next dashboard/detail-window direction is documented in `docs/dashboard-and-detail-window.md`, with a lightweight clickable prototype in `docs/prototypes/dashboard-detail-prototype.html`. The proposed history store, intelligence metrics, graph overview, and row sparklines are documented in `docs/history-intelligence-and-graphs.md`, with a graph prototype in `docs/prototypes/history-graphs-prototype.html`.

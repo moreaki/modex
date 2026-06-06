@@ -10,23 +10,26 @@ struct ModexMenuView: View {
     let onQuit: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openWindow) private var openWindow
     @State private var showingInstrumentation = false
     @State private var showingConfiguration = false
     @State private var footerHint: String?
 
     var body: some View {
-        VStack(spacing: 10) {
-            header
-            if let latestRateLimits = model.summary?.latestRateLimits {
-                CodexRateLimitOverview(rateLimits: latestRateLimits)
-            }
-            sessionTable
+        VStack(spacing: 14) {
+            dashboardHeader
+            dashboardContent
+            DashboardTopThreadsPanel(
+                sessions: topDashboardSessions,
+                thresholds: model.settings.contextThresholds,
+                sessionDetailHoverDelayMilliseconds: model.settings.sessionDetailHoverDelayMilliseconds
+            )
             footer
         }
-        .padding(.top, 14)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 12)
-        .frame(width: 900, height: 430)
+        .padding(.top, 24)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 20)
+        .frame(width: 920, height: 640)
         .background(palette.background)
         .foregroundStyle(palette.text)
         .environment(\.modexPalette, palette)
@@ -36,11 +39,11 @@ struct ModexMenuView: View {
         ModexTheme.palette(for: model.settings.colorTheme, colorScheme: colorScheme)
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+    private var dashboardHeader: some View {
+        HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(ModexStrings.text("overview.title"))
-                    .font(.system(size: 15, weight: .semibold))
+                Text(ModexStrings.text("dashboard.title"))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(palette.text)
                 Text(summaryText)
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
@@ -48,16 +51,39 @@ struct ModexMenuView: View {
                     .lineLimit(1)
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 18)
 
             Text(statusText)
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(palette.secondaryText)
                 .lineLimit(1)
+
+            Button {
+                openWindow(id: ModexWindowID.threadDetail)
+            } label: {
+                Label(ModexStrings.text("dashboard.openDetail"), systemImage: "rectangle.grid.1x2")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background(palette.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
         }
     }
 
-    private var sessionTable: some View {
+    private var dashboardContent: some View {
+        VStack(spacing: 12) {
+            DashboardMetricGrid(summary: model.summary)
+            if let latestRateLimits = model.summary?.latestRateLimits {
+                CodexRateLimitOverview(rateLimits: latestRateLimits)
+            }
+            DashboardInsightStrip(summary: model.summary, metrics: model.latestMetrics)
+        }
+    }
+
+    fileprivate var sessionTable: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(OverviewColumn.allCases) { column in
@@ -95,6 +121,18 @@ struct ModexMenuView: View {
 
     private var sessionGroups: [SessionGroup] {
         groupedSessions(model.summary?.sessions ?? [])
+    }
+
+    private var topDashboardSessions: [IndexedSession] {
+        Array(
+            (model.summary?.sessions ?? [])
+                .enumerated()
+                .map { IndexedSession(index: $0.offset, session: $0.element) }
+                .sorted { lhs, rhs in
+                    dashboardAttentionScore(lhs.session) > dashboardAttentionScore(rhs.session)
+                }
+                .prefix(5)
+        )
     }
 
     private var footer: some View {
@@ -136,6 +174,14 @@ struct ModexMenuView: View {
                 )
             }
 
+            IconButton(
+                symbol: "rectangle.grid.1x2",
+                label: ModexStrings.text("dashboard.openDetail"),
+                onHoverLabel: setFooterHint
+            ) {
+                openWindow(id: ModexWindowID.threadDetail)
+            }
+
             Text(footerHint ?? "")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(palette.mutedText)
@@ -152,6 +198,7 @@ struct ModexMenuView: View {
                 action: onQuit
             )
         }
+        .frame(height: 30)
     }
 
     private func setFooterHint(_ label: String?) {
@@ -187,6 +234,586 @@ struct ModexMenuView: View {
 
 }
 
+struct ModexThreadDetailWindow: View {
+    @ObservedObject var model: ModexMenuModel
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedTab: ThreadDetailTab = .overview
+    @State private var searchText = ""
+    @State private var selectedProject = ThreadProjectFilter.all
+    @State private var warningsOnly = false
+    @State private var failuresOnly = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            detailHeader
+            filterBar
+            tabBar
+            Divider()
+                .overlay(palette.surface.opacity(0.6))
+            selectedTabContent
+        }
+        .frame(minWidth: 980, minHeight: 640)
+        .background(palette.background)
+        .foregroundStyle(palette.text)
+        .environment(\.modexPalette, palette)
+    }
+
+    private var palette: ModexPalette {
+        ModexTheme.palette(for: model.settings.colorTheme, colorScheme: colorScheme)
+    }
+
+    private var sessions: [SessionSnapshot] {
+        model.summary?.sessions ?? []
+    }
+
+    private var filteredSessions: [SessionSnapshot] {
+        sessions.filter { session in
+            if warningsOnly, (session.contextUsagePercent ?? 0) < model.settings.contextThresholds.yellowPercent {
+                return false
+            }
+            if failuresOnly, session.failedCommandEvents == 0 {
+                return false
+            }
+            if selectedProject.id != ThreadProjectFilter.all.id,
+               projectTitle(for: session) != selectedProject.title
+            {
+                return false
+            }
+            guard searchText.isEmpty == false else {
+                return true
+            }
+            let haystack = [
+                session.threadName,
+                session.sessionID,
+                session.workingDirectory,
+                session.model,
+                session.reasoningEffort,
+            ]
+            .compactMap(\.self)
+            .joined(separator: " ")
+            return haystack.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var projectFilters: [ThreadProjectFilter] {
+        let titles = Set(sessions.map(projectTitle(for:)))
+        return [.all] + titles.sorted().map { ThreadProjectFilter(id: $0, title: $0) }
+    }
+
+    private var detailHeader: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ModexStrings.text("detail.title"))
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                Text(detailSubtitle)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if model.isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Text(model.lastReadStatus)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(palette.mutedText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 20)
+        .padding(.bottom, 14)
+    }
+
+    private var detailSubtitle: String {
+        guard let summary = model.summary else {
+            return ModexStrings.text("overview.noMetrics")
+        }
+        return [
+            ModexStrings.format("overview.sessions", summary.sessionsScanned),
+            ModexStrings.format("overview.tokens", compact(summary.totalTokens)),
+            ModexStrings.format("overview.compactions", summary.compactionEvents),
+            summary.scanMetrics.map { ModexStrings.format("overview.scanDuration", formatDuration($0.durationSeconds)) },
+        ]
+        .compactMap(\.self)
+        .joined(separator: "  ")
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 10) {
+            TextField(ModexStrings.text("detail.searchPlaceholder"), text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 10)
+                .frame(width: 260, height: 32)
+                .background(palette.sidebar.opacity(0.82))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(palette.surface.opacity(0.55), lineWidth: 0.7)
+                }
+
+            Picker("", selection: $selectedProject) {
+                ForEach(projectFilters) { filter in
+                    Text(filter.title).tag(filter)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 190)
+
+            filterToggle(
+                title: ModexStrings.text("detail.warnings"),
+                symbol: "exclamationmark.triangle",
+                isOn: $warningsOnly
+            )
+            filterToggle(
+                title: ModexStrings.text("detail.failures"),
+                symbol: "xmark.octagon",
+                isOn: $failuresOnly
+            )
+
+            Spacer()
+
+            Text(ModexStrings.format("detail.filteredCount", filteredSessions.count, sessions.count))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(palette.mutedText)
+        }
+        .padding(.horizontal, 22)
+        .padding(.bottom, 12)
+    }
+
+    private func filterToggle(title: String, symbol: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(isOn.wrappedValue ? Color.white : palette.secondaryText)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(isOn.wrappedValue ? palette.accent : palette.sidebar.opacity(0.82))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(palette.surface.opacity(isOn.wrappedValue ? 0 : 0.55), lineWidth: 0.7)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 6) {
+            ForEach(ThreadDetailTab.allCases) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    Label(tab.title, systemImage: tab.symbol)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(tab == selectedTab ? palette.accent : palette.secondaryText)
+                        .padding(.horizontal, 10)
+                        .frame(height: 32)
+                        .background(tab == selectedTab ? palette.surfaceHighlight : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 22)
+        .padding(.bottom, 10)
+    }
+
+    @ViewBuilder
+    private var selectedTabContent: some View {
+        switch selectedTab {
+        case .overview:
+            ThreadOverviewTab(
+                sessions: filteredSessions,
+                thresholds: model.settings.contextThresholds,
+                sessionDetailHoverDelayMilliseconds: model.settings.sessionDetailHoverDelayMilliseconds
+            )
+        case .tokens:
+            ThreadMetricCardsTab(
+                sessions: filteredSessions,
+                cards: tokenCards,
+                leaders: tokenLeaders
+            )
+        case .performance:
+            ThreadMetricCardsTab(
+                sessions: filteredSessions,
+                cards: performanceCards,
+                leaders: performanceLeaders
+            )
+        case .activity:
+            ThreadMetricCardsTab(
+                sessions: filteredSessions,
+                cards: activityCards,
+                leaders: activityLeaders
+            )
+        case .diagnostics:
+            ThreadDiagnosticsTab(metrics: model.latestMetrics)
+        }
+    }
+
+    private var tokenCards: [ThreadMetricCard] {
+        [
+            ThreadMetricCard(title: ModexStrings.text("dashboard.cachedInput"), value: percentText(average(filteredSessions.compactMap(\.cachedInputPercent))), detail: ModexStrings.text("detail.tokensCachedDetail")),
+            ThreadMetricCard(title: ModexStrings.text("detail.reasoningShare"), value: percentText(average(filteredSessions.compactMap(\.reasoningOutputPercent))), detail: ModexStrings.text("detail.reasoningShareDetail")),
+            ThreadMetricCard(title: ModexStrings.text("dashboard.fastestGrowth"), value: "+\(compact(filteredSessions.map(\.latestContextGrowthTokens).max() ?? 0))", detail: ModexStrings.text("detail.contextGrowthDetail")),
+            ThreadMetricCard(title: ModexStrings.text("column.compact.helpTitle"), value: "\(filteredSessions.reduce(0) { $0 + $1.compactionEvents })", detail: ModexStrings.text("column.compact.body")),
+        ]
+    }
+
+    private var performanceCards: [ThreadMetricCard] {
+        [
+            ThreadMetricCard(title: ModexStrings.text("detail.completedTurns"), value: "\(filteredSessions.reduce(0) { $0 + $1.completedTurns })", detail: ModexStrings.text("detail.completedTurnsDetail")),
+            ThreadMetricCard(title: ModexStrings.text("detail.medianDuration"), value: millisecondsText(median(filteredSessions.compactMap(\.medianTurnDurationMilliseconds))), detail: ModexStrings.text("detail.medianDurationDetail")),
+            ThreadMetricCard(title: ModexStrings.text("detail.medianTTFT"), value: millisecondsText(median(filteredSessions.compactMap(\.medianTimeToFirstTokenMilliseconds))), detail: ModexStrings.text("detail.medianTTFTDetail")),
+            ThreadMetricCard(title: ModexStrings.text("dashboard.slowestTurn"), value: millisecondsText(filteredSessions.compactMap(\.lastTurnDurationMilliseconds).max()), detail: ModexStrings.text("detail.slowestTurnDetail")),
+        ]
+    }
+
+    private var activityCards: [ThreadMetricCard] {
+        [
+            ThreadMetricCard(title: ModexStrings.text("detail.commands"), value: "\(filteredSessions.reduce(0) { $0 + $1.commandEvents })", detail: ModexStrings.text("detail.commandsDetail")),
+            ThreadMetricCard(title: ModexStrings.text("dashboard.failures"), value: "\(filteredSessions.reduce(0) { $0 + $1.failedCommandEvents })", detail: ModexStrings.text("detail.failuresDetail")),
+            ThreadMetricCard(title: ModexStrings.text("dashboard.filesChanged"), value: "\(filteredSessions.reduce(0) { $0 + $1.changedFileEvents })", detail: ModexStrings.text("detail.filesChangedDetail")),
+            ThreadMetricCard(title: ModexStrings.text("detail.toolCalls"), value: "\(filteredSessions.reduce(0) { $0 + $1.toolCallEvents })", detail: ModexStrings.text("detail.toolCallsDetail")),
+        ]
+    }
+
+    private var tokenLeaders: [ThreadLeaderRow] {
+        filteredSessions
+            .sorted { $0.latestContextGrowthTokens > $1.latestContextGrowthTokens }
+            .prefix(8)
+            .map { ThreadLeaderRow(session: $0, value: "+\(compact($0.latestContextGrowthTokens))") }
+    }
+
+    private var performanceLeaders: [ThreadLeaderRow] {
+        filteredSessions
+            .sorted { ($0.lastTurnDurationMilliseconds ?? 0) > ($1.lastTurnDurationMilliseconds ?? 0) }
+            .prefix(8)
+            .map { ThreadLeaderRow(session: $0, value: millisecondsText($0.lastTurnDurationMilliseconds)) }
+    }
+
+    private var activityLeaders: [ThreadLeaderRow] {
+        filteredSessions
+            .sorted { lhs, rhs in
+                if lhs.failedCommandEvents == rhs.failedCommandEvents {
+                    return lhs.commandEvents > rhs.commandEvents
+                }
+                return lhs.failedCommandEvents > rhs.failedCommandEvents
+            }
+            .prefix(8)
+            .map { ThreadLeaderRow(session: $0, value: ModexStrings.format("detail.activityValue", $0.commandEvents, $0.failedCommandEvents)) }
+    }
+}
+
+private enum ThreadDetailTab: String, CaseIterable, Identifiable {
+    case overview
+    case tokens
+    case performance
+    case activity
+    case diagnostics
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .overview:
+            return ModexStrings.text("detail.overview")
+        case .tokens:
+            return ModexStrings.text("detail.tokens")
+        case .performance:
+            return ModexStrings.text("detail.performance")
+        case .activity:
+            return ModexStrings.text("detail.activity")
+        case .diagnostics:
+            return ModexStrings.text("detail.diagnostics")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .overview:
+            return "tablecells"
+        case .tokens:
+            return "sum"
+        case .performance:
+            return "speedometer"
+        case .activity:
+            return "terminal"
+        case .diagnostics:
+            return "stethoscope"
+        }
+    }
+}
+
+private struct ThreadProjectFilter: Hashable, Identifiable {
+    static let all = ThreadProjectFilter(id: "__all__", title: ModexStrings.text("detail.allProjects"))
+
+    let id: String
+    let title: String
+}
+
+private struct ThreadOverviewTab: View {
+    let sessions: [SessionSnapshot]
+    let thresholds: ModexContextThresholds
+    let sessionDetailHoverDelayMilliseconds: Int
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                tableHeader
+                ForEach(groupedSessions(sessions)) { group in
+                    ProjectGroupHeader(title: group.title)
+                    ForEach(group.sessions) { indexedSession in
+                        SessionRow(
+                            session: indexedSession.session,
+                            index: indexedSession.index,
+                            thresholds: thresholds,
+                            sessionDetailHoverDelayMilliseconds: sessionDetailHoverDelayMilliseconds
+                        )
+                    }
+                }
+            }
+            .padding(18)
+        }
+        .background(palette.background)
+    }
+
+    private var tableHeader: some View {
+        HStack(spacing: 0) {
+            ForEach(OverviewColumn.allCases) { column in
+                ColumnHeader(column: column)
+                    .frame(width: column.width, alignment: column.alignment)
+            }
+        }
+        .frame(height: 32)
+        .background(palette.sidebar.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct ThreadMetricCardsTab: View {
+    let sessions: [SessionSnapshot]
+    let cards: [ThreadMetricCard]
+    let leaders: [ThreadLeaderRow]
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                    ],
+                    spacing: 12
+                ) {
+                    ForEach(cards) { card in
+                        ThreadMetricCardView(card: card)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(ModexStrings.text("detail.leaders"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.secondaryText)
+
+                    VStack(spacing: 0) {
+                        ForEach(leaders) { row in
+                            ThreadLeaderRowView(row: row)
+                        }
+                    }
+                    .background(palette.sidebar.opacity(0.66))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(palette.surface.opacity(0.45), lineWidth: 0.7)
+                    }
+                }
+            }
+            .padding(22)
+        }
+    }
+}
+
+private struct ThreadMetricCard: Identifiable {
+    let id = UUID()
+    let title: String
+    let value: String
+    let detail: String
+}
+
+private struct ThreadMetricCardView: View {
+    let card: ThreadMetricCard
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(card.title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(palette.secondaryText)
+                .lineLimit(1)
+            Text(card.value)
+                .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                .foregroundStyle(palette.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(card.detail)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(palette.mutedText)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 116, alignment: .leading)
+        .background(palette.sidebar.opacity(0.68))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(palette.surface.opacity(0.45), lineWidth: 0.7)
+        }
+    }
+}
+
+private struct ThreadLeaderRow: Identifiable {
+    let id = UUID()
+    let session: SessionSnapshot
+    let value: String
+}
+
+private struct ThreadLeaderRowView: View {
+    let row: ThreadLeaderRow
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.session.threadName ?? projectTitle(for: row.session))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                Text("\(projectTitle(for: row.session)) · \(modeValue(row.session.model)) · \(modeValue(row.session.reasoningEffort))")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(row.value)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(palette.secondaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 48)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(palette.surface.opacity(0.25))
+                .frame(height: 1)
+        }
+    }
+}
+
+private struct ThreadDiagnosticsTab: View {
+    let metrics: ScanMetrics?
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let metrics {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12),
+                        ],
+                        spacing: 12
+                    ) {
+                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.duration"), value: formatDuration(metrics.durationSeconds), detail: metrics.parserMode))
+                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.read"), value: formatBytes(metrics.bytesRead), detail: "\(metrics.filesParsed)/\(metrics.filesSelected)"))
+                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.cache"), value: cacheValue(metrics), detail: ModexStrings.format("detail.cacheSaved", formatBytes(metrics.cacheBytesSaved))))
+                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.concurrency"), value: concurrencyValue(metrics), detail: ModexStrings.format("detail.chunkLine", formatBytes(metrics.chunkSizeBytes), formatBytes(metrics.maximumLineBufferBytes))))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(ModexStrings.text("instrumentation.slowestFiles"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(palette.secondaryText)
+
+                        VStack(spacing: 0) {
+                            ForEach(slowestFiles(metrics), id: \.fileURL) { file in
+                                HStack(spacing: 12) {
+                                    Text(file.threadName ?? fileName(file.fileURL))
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(palette.secondaryText)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer()
+                                    Text(formatDuration(file.durationSeconds))
+                                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(palette.text)
+                                    Text(formatBytes(file.bytesRead))
+                                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(palette.secondaryText)
+                                        .frame(width: 88, alignment: .trailing)
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(height: 42)
+                                .help(file.fileURL.path)
+                            }
+                        }
+                        .background(palette.sidebar.opacity(0.66))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                } else {
+                    Text(ModexStrings.text("instrumentation.noCompletedRead"))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(palette.secondaryText)
+                        .padding(20)
+                }
+            }
+            .padding(22)
+        }
+    }
+
+    private func cacheValue(_ metrics: ScanMetrics) -> String {
+        guard metrics.cacheEnabled else {
+            return ModexStrings.text("instrumentation.cacheOff")
+        }
+        return "\(metrics.cacheHits)/\(metrics.filesSelected)"
+    }
+
+    private func concurrencyValue(_ metrics: ScanMetrics) -> String {
+        if metrics.maximumConcurrentParses == metrics.configuredMaximumConcurrentParses {
+            return "\(metrics.maximumConcurrentParses)x"
+        }
+        return "\(metrics.maximumConcurrentParses)x / \(metrics.configuredMaximumConcurrentParses)x"
+    }
+
+    private func slowestFiles(_ metrics: ScanMetrics) -> [FileScanMetrics] {
+        Array(
+            metrics.fileMetrics
+                .filter { $0.cacheHit == false }
+                .sorted { $0.durationSeconds > $1.durationSeconds }
+                .prefix(8)
+        )
+    }
+}
+
 private struct CodexRateLimitOverview: View {
     let rateLimits: CodexRateLimits
     @Environment(\.modexPalette) private var palette
@@ -202,10 +829,399 @@ private struct CodexRateLimitOverview: View {
                 window: rateLimits.secondary
             )
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(palette.sidebar.opacity(0.42))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private struct DashboardMetricGrid: View {
+    let summary: ModexSummary?
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
+            ],
+            spacing: 12
+        ) {
+            DashboardMetricTile(
+                symbol: "rectangle.stack",
+                title: ModexStrings.text("dashboard.activeThreads"),
+                value: summary.map { "\($0.sessionsScanned)" } ?? "0",
+                detail: ModexStrings.text("dashboard.scanned")
+            )
+            DashboardMetricTile(
+                symbol: "gauge.medium",
+                title: ModexStrings.text("dashboard.highestContext"),
+                value: percentText(highestContext),
+                detail: ModexStrings.text("dashboard.watch")
+            )
+            DashboardMetricTile(
+                symbol: "sum",
+                title: ModexStrings.text("column.total.title"),
+                value: summary.map { compact($0.totalTokens) } ?? "0",
+                detail: exactTotalText
+            )
+            DashboardMetricTile(
+                symbol: "xmark.octagon",
+                title: ModexStrings.text("dashboard.failures"),
+                value: "\(failedCommands)",
+                detail: ModexStrings.text("dashboard.commandExits")
+            )
+        }
+    }
+
+    private var sessions: [SessionSnapshot] {
+        summary?.sessions ?? []
+    }
+
+    private var highestContext: Double? {
+        sessions.compactMap(\.contextUsagePercent).max()
+    }
+
+    private var failedCommands: Int {
+        sessions.reduce(0) { $0 + $1.failedCommandEvents }
+    }
+
+    private var exactTotalText: String {
+        guard let totalTokens = summary?.totalTokens, totalTokens > 0 else {
+            return ModexStrings.text("overview.noMetrics")
+        }
+        return totalTokens.formatted()
+    }
+}
+
+private struct DashboardMetricTile: View {
+    let symbol: String
+    let title: String
+    let value: String
+    let detail: String
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(palette.accent)
+                .frame(width: 24, height: 24)
+                .background(palette.accent.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                Text(title)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(height: 60)
+        .background(palette.sidebar.opacity(0.68))
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(palette.surface.opacity(0.45), lineWidth: 0.7)
+        }
+    }
+}
+
+private struct DashboardInsightStrip: View {
+    let summary: ModexSummary?
+    let metrics: ScanMetrics?
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(insights) { insight in
+                HStack(spacing: 5) {
+                    Text(insight.title)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(palette.mutedText)
+                    Text(insight.value)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(palette.secondaryText)
+                }
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(palette.sidebar.opacity(0.58))
+                .clipShape(Capsule())
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var sessions: [SessionSnapshot] {
+        summary?.sessions ?? []
+    }
+
+    private var insights: [DashboardInsight] {
+        [
+            DashboardInsight(
+                id: "growth",
+                title: ModexStrings.text("dashboard.fastestGrowth"),
+                value: fastestGrowth == 0 ? ModexStrings.text("overview.contextUnavailable") : "+\(compact(fastestGrowth))"
+            ),
+            DashboardInsight(
+                id: "slowest",
+                title: ModexStrings.text("dashboard.slowestTurn"),
+                value: slowestTurn.map(millisecondsText) ?? ModexStrings.text("overview.contextUnavailable")
+            ),
+            DashboardInsight(
+                id: "cached",
+                title: ModexStrings.text("dashboard.cachedInput"),
+                value: percentText(averageCachedInput)
+            ),
+            DashboardInsight(
+                id: "files",
+                title: ModexStrings.text("dashboard.filesChanged"),
+                value: "\(changedFiles)"
+            ),
+            DashboardInsight(
+                id: "cache",
+                title: ModexStrings.text("instrumentation.cache"),
+                value: cacheText
+            ),
+        ]
+    }
+
+    private var fastestGrowth: Int {
+        sessions.map(\.latestContextGrowthTokens).max() ?? 0
+    }
+
+    private var slowestTurn: Int? {
+        sessions.compactMap(\.lastTurnDurationMilliseconds).max()
+    }
+
+    private var averageCachedInput: Double? {
+        let values = sessions.compactMap(\.cachedInputPercent)
+        guard values.isEmpty == false else {
+            return nil
+        }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private var changedFiles: Int {
+        sessions.reduce(0) { $0 + $1.changedFileEvents }
+    }
+
+    private var cacheText: String {
+        guard let metrics, metrics.cacheEnabled, metrics.filesSelected > 0 else {
+            return ModexStrings.text("instrumentation.cacheOff")
+        }
+        return "\(Int((Double(metrics.cacheHits) / Double(metrics.filesSelected) * 100).rounded()))%"
+    }
+}
+
+private struct DashboardInsight: Identifiable {
+    let id: String
+    let title: String
+    let value: String
+}
+
+private struct DashboardTopThreadsPanel: View {
+    let sessions: [IndexedSession]
+    let thresholds: ModexContextThresholds
+    let sessionDetailHoverDelayMilliseconds: Int
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(ModexStrings.text("dashboard.topThreads"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.secondaryText)
+                Spacer()
+                Text(ModexStrings.text("dashboard.rankHint"))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(palette.mutedText)
+            }
+
+            VStack(spacing: 0) {
+                if sessions.isEmpty {
+                    Text(ModexStrings.text("overview.noMetrics"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(palette.mutedText)
+                        .frame(maxWidth: .infinity, minHeight: 70)
+                } else {
+                    ForEach(sessions) { indexedSession in
+                        DashboardThreadRow(
+                            session: indexedSession.session,
+                            index: indexedSession.index,
+                            thresholds: thresholds,
+                            sessionDetailHoverDelayMilliseconds: sessionDetailHoverDelayMilliseconds
+                        )
+                    }
+                }
+            }
+            .background(palette.sidebar.opacity(0.64))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(palette.surface.opacity(0.45), lineWidth: 0.7)
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct DashboardThreadRow: View {
+    let session: SessionSnapshot
+    let index: Int
+    let thresholds: ModexContextThresholds
+    let sessionDetailHoverDelayMilliseconds: Int
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(sessionTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .sessionDetailTip(sessionTooltip, delayMilliseconds: sessionDetailHoverDelayMilliseconds)
+
+            ContextMeter(
+                percent: session.contextUsagePercent,
+                thresholds: thresholds,
+                accessibilityLabel: contextStatusText
+            )
+            .frame(width: 106, alignment: .trailing)
+
+            dashboardValue(compact(session.totalTokens), label: ModexStrings.text("column.total.title"))
+                .frame(width: 82, alignment: .trailing)
+            dashboardValue(cachedText, label: ModexStrings.text("dashboard.cachedInput"))
+                .frame(width: 78, alignment: .trailing)
+            dashboardValue(activityText, label: ModexStrings.text("dashboard.activity"))
+                .frame(width: 96, alignment: .trailing)
+            UpdatedCell(updatedAt: session.updatedAt)
+                .frame(width: 76, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 58)
+        .background(index.isMultiple(of: 2) ? Color.white.opacity(0.035) : Color.clear)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(palette.surface.opacity(0.26))
+                .frame(height: 1)
+        }
+    }
+
+    private func dashboardValue(_ value: String, label: String) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(palette.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
+            Text(label)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(palette.mutedText)
+                .lineLimit(1)
+        }
+    }
+
+    private var sessionTitle: String {
+        if let threadName = session.threadName, threadName.isEmpty == false {
+            return threadName
+        }
+        return projectTitle(for: session)
+    }
+
+    private var subtitle: String {
+        [
+            projectTitle(for: session),
+            modeValue(session.model),
+            modeValue(session.reasoningEffort),
+            speedText(for: session.realtimeActive),
+        ]
+        .filter { $0 != ModexStrings.text("overview.contextUnavailable") }
+        .joined(separator: " · ")
+    }
+
+    private var cachedText: String {
+        percentText(session.cachedInputPercent)
+    }
+
+    private var activityText: String {
+        if session.failedCommandEvents > 0 {
+            return ModexStrings.format("dashboard.failedShort", session.failedCommandEvents)
+        }
+        if session.changedFileEvents > 0 {
+            return ModexStrings.format("dashboard.filesShort", session.changedFileEvents)
+        }
+        if session.commandEvents > 0 {
+            return ModexStrings.format("dashboard.commandsShort", session.commandEvents)
+        }
+        return ModexStrings.text("dashboard.clean")
+    }
+
+    private var sessionTooltip: String {
+        var rows: [String] = []
+        if let threadName = session.threadName, threadName.isEmpty == false {
+            rows.append(ModexStrings.format("overview.threadLabel", threadName))
+        }
+        if let workingDirectory = session.workingDirectory, !workingDirectory.isEmpty {
+            rows.append(ModexStrings.format("overview.projectLabel", workingDirectory))
+        }
+        if let sessionID = session.sessionID {
+            rows.append(ModexStrings.format("overview.sessionTooltipLabel", sessionID))
+        }
+        rows.append(ModexStrings.format("overview.modelLabel", modeValue(session.model)))
+        rows.append(ModexStrings.format("overview.reasoningLabel", modeValue(session.reasoningEffort)))
+        rows.append(ModexStrings.format("overview.speedLabel", speedText(for: session.realtimeActive)))
+        rows.append(contextStatusText)
+        rows.append(ModexStrings.format("dashboard.cachedInputDetail", cachedText))
+        rows.append(ModexStrings.format("dashboard.turnsDetail", session.completedTurns))
+        rows.append(ModexStrings.format("dashboard.commandsDetail", session.commandEvents, session.failedCommandEvents))
+        rows.append(ModexStrings.format("dashboard.filesDetail", session.changedFileEvents))
+        rows.append(ModexStrings.format("overview.fileLabel", session.fileURL.path))
+        return rows.joined(separator: "\n")
+    }
+
+    private var contextStatusText: String {
+        guard let percent = session.contextUsagePercent,
+              let usedTokens = session.contextUsedTokens,
+              let contextWindow = session.contextWindow
+        else {
+            return ModexStrings.text("app.unknownContext")
+        }
+
+        return ModexStrings.format(
+            "overview.contextUsageDetail",
+            Int(percent.rounded()),
+            usedTokens.formatted(),
+            contextWindow.formatted()
+        )
     }
 }
 
@@ -2340,6 +3356,73 @@ private struct IconButton: View {
 
 func compact(_ value: Int) -> String {
     value.formatted(.number.notation(.compactName))
+}
+
+func percentText(_ value: Double?) -> String {
+    guard let value else {
+        return ModexStrings.text("overview.contextUnavailable")
+    }
+    return "\(Int(value.rounded()))%"
+}
+
+func millisecondsText(_ milliseconds: Int?) -> String {
+    guard let milliseconds else {
+        return ModexStrings.text("overview.contextUnavailable")
+    }
+    if milliseconds < 1_000 {
+        return "\(milliseconds)ms"
+    }
+    if milliseconds < 60_000 {
+        return String(format: "%.1fs", Double(milliseconds) / 1_000)
+    }
+    let minutes = milliseconds / 60_000
+    let seconds = (milliseconds % 60_000) / 1_000
+    return "\(minutes)m \(seconds)s"
+}
+
+func average(_ values: [Double]) -> Double? {
+    guard values.isEmpty == false else {
+        return nil
+    }
+    return values.reduce(0, +) / Double(values.count)
+}
+
+func median(_ values: [Int]) -> Int? {
+    guard values.isEmpty == false else {
+        return nil
+    }
+    let sorted = values.sorted()
+    let middle = sorted.count / 2
+    if sorted.count.isMultiple(of: 2) {
+        return (sorted[middle - 1] + sorted[middle]) / 2
+    }
+    return sorted[middle]
+}
+
+func dashboardAttentionScore(_ session: SessionSnapshot) -> Double {
+    var score = 0.0
+    score += (session.contextUsagePercent ?? 0) * 2.4
+    score += min(Double(session.latestContextGrowthTokens) / 1_000, 60)
+    score += Double(session.failedCommandEvents) * 26
+    score += Double(session.changedFileEvents) * 2
+    score += min(Double(session.totalTokens) / 1_000_000, 30)
+
+    if let lastTurnDuration = session.lastTurnDurationMilliseconds {
+        score += min(Double(lastTurnDuration) / 10_000, 24)
+    }
+
+    if let updatedAt = session.updatedAt {
+        let age = max(0, Date().timeIntervalSince(updatedAt))
+        if age < 60 * 60 {
+            score += 34
+        } else if age < 24 * 60 * 60 {
+            score += 20
+        } else if age < 7 * 24 * 60 * 60 {
+            score += 8
+        }
+    }
+
+    return score
 }
 
 private func groupedSessions(_ sessions: [SessionSnapshot]) -> [SessionGroup] {

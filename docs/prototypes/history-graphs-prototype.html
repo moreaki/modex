@@ -1,0 +1,1050 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Modex History Graph Prototype</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --soft: #f0f2f6;
+      --ink: #202329;
+      --muted: #797f8b;
+      --faint: #dfe3ea;
+      --line: #c9ced8;
+      --track: #e8ebf0;
+      --blue: #1677f2;
+      --mint: #53bfb4;
+      --yellow: #d4aa3f;
+      --orange: #c47a45;
+      --red: #cf595d;
+      --purple: #7c70d8;
+      --shadow: 0 26px 80px rgba(26, 31, 40, .22);
+      --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    [data-theme="black"] {
+      --bg: #11121a;
+      --panel: #1b1c29;
+      --soft: #232433;
+      --ink: #e8ebfa;
+      --muted: #a2a8bd;
+      --faint: #37394b;
+      --line: #484b61;
+      --track: #303243;
+      --shadow: 0 30px 90px rgba(0, 0, 0, .46);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(22, 119, 242, .12), transparent 270px),
+        var(--bg);
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    button {
+      color: inherit;
+      font: inherit;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .menu-bar {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 18px;
+      padding: 0 24px;
+      color: white;
+      background: linear-gradient(180deg, #2583bd, #1d76ad);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 30px;
+      padding: 0 13px 0 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .16);
+      font-weight: 850;
+    }
+
+    .pulse {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at center, rgba(83, 191, 180, .22) 0 38%, transparent 39%),
+        conic-gradient(var(--orange) 0 81%, rgba(255, 255, 255, .24) 81% 100%);
+    }
+
+    .pulse::before {
+      content: "";
+      width: 14px;
+      height: 8px;
+      border-left: 2px solid white;
+      border-right: 2px solid white;
+      transform: skewX(-18deg);
+      opacity: .94;
+    }
+
+    .stage {
+      min-height: calc(100vh - 38px);
+      display: grid;
+      place-items: start center;
+      padding: 28px;
+    }
+
+    .popover {
+      width: min(1060px, calc(100vw - 42px));
+      min-height: 690px;
+      position: relative;
+      border-radius: 26px;
+      background: var(--panel);
+      border: 1px solid color-mix(in srgb, var(--faint), transparent 12%);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .popover::before {
+      content: "";
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      width: 28px;
+      height: 28px;
+      transform: translateX(-50%) rotate(45deg);
+      background: var(--panel);
+      border-left: 1px solid var(--faint);
+      border-top: 1px solid var(--faint);
+    }
+
+    .content {
+      padding: 26px 28px 22px;
+    }
+
+    .header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 20px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 25px;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      margin-top: 7px;
+      color: var(--muted);
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .segmented {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 14px;
+      background: var(--soft);
+      border: 1px solid var(--faint);
+    }
+
+    .segmented button,
+    .theme-toggle {
+      min-width: 92px;
+      height: 34px;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 850;
+    }
+
+    .segmented button.active {
+      color: white;
+      background: var(--blue);
+    }
+
+    .theme-toggle {
+      min-width: 74px;
+      color: var(--ink);
+      background: var(--soft);
+      border: 1px solid var(--faint);
+    }
+
+    .page {
+      display: none;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .dashboard-grid {
+      grid-template-columns: 1.35fr 1fr;
+    }
+
+    .detail-grid {
+      grid-template-columns: 1.25fr .9fr;
+    }
+
+    .panel {
+      border-radius: 18px;
+      background: var(--soft);
+      border: 1px solid color-mix(in srgb, var(--faint), transparent 18%);
+      padding: 17px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 850;
+    }
+
+    .panel-note {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 780;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .chart {
+      width: 100%;
+      height: 190px;
+      display: block;
+    }
+
+    .chart-tall {
+      height: 252px;
+    }
+
+    .chart text {
+      fill: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .grid-line {
+      stroke: var(--line);
+      stroke-width: 1;
+      opacity: .6;
+    }
+
+    .area {
+      fill: color-mix(in srgb, var(--orange), transparent 84%);
+    }
+
+    .line-mint {
+      fill: none;
+      stroke: var(--mint);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .line-yellow {
+      fill: none;
+      stroke: var(--yellow);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .line-orange {
+      fill: none;
+      stroke: var(--orange);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .line-blue {
+      fill: none;
+      stroke: var(--blue);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .line-purple {
+      fill: none;
+      stroke: var(--purple);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .dash-red {
+      fill: none;
+      stroke: var(--red);
+      stroke-width: 2;
+      stroke-dasharray: 5 6;
+      stroke-linecap: round;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--dot-color);
+    }
+
+    .economy {
+      display: grid;
+      gap: 13px;
+      margin-top: 4px;
+    }
+
+    .economy-row {
+      display: grid;
+      grid-template-columns: 118px 1fr 54px 30px;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-weight: 780;
+    }
+
+    .bar {
+      height: 12px;
+      border-radius: 999px;
+      background: var(--track);
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      width: var(--value);
+      height: 100%;
+      border-radius: inherit;
+      background: var(--bar-color);
+    }
+
+    .number {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-weight: 850;
+      text-align: right;
+    }
+
+    .insights {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .insight {
+      min-height: 82px;
+      border-radius: 17px;
+      background: color-mix(in srgb, var(--panel), transparent 2%);
+      border: 1px solid color-mix(in srgb, var(--faint), transparent 15%);
+      padding: 14px;
+    }
+
+    .insight b {
+      display: block;
+      font-size: 22px;
+      margin-bottom: 5px;
+      font-family: var(--mono);
+    }
+
+    .insight span {
+      color: var(--muted);
+      font-weight: 760;
+    }
+
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    .thread-list {
+      overflow: hidden;
+      border-radius: 17px;
+      border: 1px solid var(--faint);
+      background: color-mix(in srgb, var(--panel), transparent 2%);
+    }
+
+    .row,
+    .row-head {
+      display: grid;
+      grid-template-columns: minmax(250px, 1fr) 132px 132px 126px 94px;
+      align-items: center;
+      gap: 18px;
+      padding: 13px 17px;
+    }
+
+    .row-head {
+      min-height: 38px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      border-bottom: 1px solid var(--faint);
+    }
+
+    .row {
+      min-height: 70px;
+      border-bottom: 1px solid color-mix(in srgb, var(--faint), transparent 35%);
+    }
+
+    .row:last-child {
+      border-bottom: 0;
+    }
+
+    .thread-title {
+      display: block;
+      font-size: 17px;
+      font-weight: 880;
+      margin-bottom: 5px;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-weight: 760;
+    }
+
+    .metric-cell {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-weight: 850;
+    }
+
+    .spark {
+      width: 70px;
+      height: 28px;
+      display: block;
+      overflow: visible;
+    }
+
+    .spark path {
+      fill: none;
+      stroke: var(--spark-color);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .spark .fill {
+      fill: color-mix(in srgb, var(--spark-color), transparent 84%);
+      stroke: none;
+    }
+
+    .score {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-weight: 850;
+      text-align: right;
+    }
+
+    .timeline {
+      position: relative;
+      height: 72px;
+      margin-top: 12px;
+      border-radius: 14px;
+      background:
+        linear-gradient(180deg, transparent 49%, color-mix(in srgb, var(--line), transparent 25%) 50%, transparent 51%),
+        var(--panel);
+      border: 1px solid var(--faint);
+      overflow: hidden;
+    }
+
+    .marker {
+      position: absolute;
+      top: 14px;
+      width: 2px;
+      height: 44px;
+      border-radius: 2px;
+      background: var(--marker-color);
+      left: var(--x);
+    }
+
+    .marker::after {
+      content: attr(data-label);
+      position: absolute;
+      top: -14px;
+      left: 6px;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 820;
+    }
+
+    .signal-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .signal {
+      border-radius: 15px;
+      padding: 13px;
+      background: var(--panel);
+      border: 1px solid var(--faint);
+    }
+
+    .signal b {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 6px;
+    }
+
+    .signal p {
+      color: var(--muted);
+      font-weight: 720;
+      line-height: 1.35;
+    }
+
+    .connection-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      margin: 2px 0 14px;
+      padding: 13px;
+      border-radius: 15px;
+      background: var(--panel);
+      border: 1px solid var(--faint);
+    }
+
+    .connection-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 870;
+      margin-bottom: 5px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted), transparent 84%);
+    }
+
+    .connection-card[data-state="connected"] .status-dot {
+      background: var(--mint);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--mint), transparent 82%);
+    }
+
+    .connection-card[data-state="testing"] .status-dot {
+      background: var(--yellow);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--yellow), transparent 82%);
+    }
+
+    .connection-meta {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 740;
+      line-height: 1.35;
+    }
+
+    .test-button {
+      height: 34px;
+      padding: 0 14px;
+      border-radius: 11px;
+      color: white;
+      background: var(--blue);
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .connection-card[data-state="connected"] .test-button {
+      background: var(--mint);
+    }
+
+    .insight-action {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      background: var(--track);
+      font-family: var(--mono);
+      font-weight: 900;
+    }
+
+    .insight-action.enabled {
+      color: white;
+      background: var(--blue);
+    }
+
+    .agent-result {
+      display: none;
+      margin-top: 13px;
+      padding: 13px;
+      border-radius: 15px;
+      background: var(--panel);
+      border: 1px solid var(--faint);
+    }
+
+    .agent-result.visible {
+      display: block;
+    }
+
+    .agent-result b {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .agent-result p {
+      color: var(--muted);
+      line-height: 1.35;
+      font-weight: 720;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-grid,
+      .detail-grid,
+      .insights {
+        grid-template-columns: 1fr;
+      }
+
+      .row,
+      .row-head {
+        grid-template-columns: minmax(220px, 1fr) 124px 110px;
+      }
+
+      .row > :nth-child(4),
+      .row > :nth-child(5),
+      .row-head > :nth-child(4),
+      .row-head > :nth-child(5) {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="menu-bar">
+    <div class="status-pill"><span class="pulse"></span>81%</div>
+    <span>History prototype</span>
+  </div>
+
+  <main class="stage">
+    <section class="popover" aria-label="Modex history graph prototype">
+      <div class="content">
+        <header class="header">
+          <div>
+            <h1>Modex Intelligence</h1>
+            <p class="subtitle">32 sessions  1.4B tokens  94% cache  history 14d</p>
+          </div>
+          <div class="controls">
+            <nav class="segmented" aria-label="Prototype view">
+              <button class="active" data-page-button="dashboard">Overview</button>
+              <button data-page-button="detail">Thread</button>
+            </nav>
+            <button class="theme-toggle" id="themeToggle">Black</button>
+          </div>
+        </header>
+
+        <section class="page active" data-page="dashboard">
+          <div class="grid dashboard-grid">
+            <article class="panel">
+              <div class="panel-header">
+                <h2 class="panel-title">Context Pressure</h2>
+                <span class="panel-note">top watched threads</span>
+              </div>
+              <svg class="chart" viewBox="0 0 560 190" role="img" aria-label="Context pressure chart">
+                <line class="grid-line" x1="40" y1="36" x2="530" y2="36"></line>
+                <line class="grid-line" x1="40" y1="86" x2="530" y2="86"></line>
+                <line class="grid-line" x1="40" y1="136" x2="530" y2="136"></line>
+                <text x="8" y="40">90%</text>
+                <text x="8" y="90">70%</text>
+                <text x="8" y="140">50%</text>
+                <path class="area" d="M40,162 L88,154 L136,142 L184,128 L232,119 L280,106 L328,94 L376,82 L424,71 L482,56 L530,44 L530,170 L40,170 Z"></path>
+                <path class="line-orange" d="M40,162 L88,154 L136,142 L184,128 L232,119 L280,106 L328,94 L376,82 L424,71 L482,56 L530,44"></path>
+                <path class="line-yellow" d="M40,118 L88,111 L136,108 L184,101 L232,94 L280,92 L328,86 L376,81 L424,77 L482,74 L530,72"></path>
+                <path class="line-mint" d="M40,146 L88,146 L136,141 L184,140 L232,136 L280,134 L328,131 L376,126 L424,125 L482,121 L530,119"></path>
+                <path class="dash-red" d="M40,36 L530,36"></path>
+                <text x="42" y="183">14d ago</text>
+                <text x="484" y="183">now</text>
+              </svg>
+              <div class="legend">
+                <span><i class="dot" style="--dot-color: var(--orange)"></i>Inspect project behavior</span>
+                <span><i class="dot" style="--dot-color: var(--yellow)"></i>Explain empty content type</span>
+                <span><i class="dot" style="--dot-color: var(--mint)"></i>UBS to GitHub specification</span>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <h2 class="panel-title">Token Economy</h2>
+                <span class="panel-note">latest 24h</span>
+              </div>
+              <div class="economy">
+                <div class="economy-row">
+                  <span>Cached input</span>
+                  <div class="bar"><span style="--value: 84%; --bar-color: var(--mint)"></span></div>
+                  <span class="number">84%</span>
+                  <span></span>
+                </div>
+                <div class="economy-row">
+                  <span>Reasoning</span>
+                  <div class="bar"><span style="--value: 21%; --bar-color: var(--purple)"></span></div>
+                  <span class="number">21%</span>
+                  <span></span>
+                </div>
+                <div class="economy-row">
+                  <span>Output</span>
+                  <div class="bar"><span style="--value: 14%; --bar-color: var(--blue)"></span></div>
+                  <span class="number">14%</span>
+                  <span></span>
+                </div>
+                <div class="economy-row">
+                  <span>Failure cost</span>
+                  <div class="bar"><span style="--value: 18%; --bar-color: var(--red)"></span></div>
+                  <span class="number">18%</span>
+                  <button class="insight-action" id="failureInsight" aria-label="Analyze failed command stats" title="Analyze with Codex">i</button>
+                </div>
+              </div>
+              <div class="signal-grid">
+                <div class="signal">
+                  <b>Cached input high</b>
+                  <p>84% cached input. This is a deterministic signal from token samples.</p>
+                </div>
+                <div class="signal">
+                  <b>Failure cost rising</b>
+                  <p>18% failure-cost proxy. Agent wording appears only when connected.</p>
+                </div>
+              </div>
+              <div class="agent-result" id="failureInsightResult">
+                <b>Failed command analysis</b>
+                <p>Connect Codex Intelligence, then click the insight icon to create or jump to an Insights-table row backed by command names, exit codes, repetition count, timestamps, and thread metrics.</p>
+              </div>
+            </article>
+          </div>
+
+          <div class="insights">
+            <div class="insight"><b>+218K</b><span>fastest context growth</span></div>
+            <div class="insight"><b>20m 54s</b><span>slowest recent turn</span></div>
+            <div class="insight"><b>12.6K</b><span>tokens per changed file</span></div>
+            <div class="insight"><b>7</b><span>threads need attention</span></div>
+          </div>
+
+          <article class="panel wide">
+            <div class="panel-header">
+              <h2 class="panel-title">Top Threads With Sparklines</h2>
+              <span class="panel-note">ranked by context, friction, and recency</span>
+            </div>
+            <div class="thread-list">
+              <div class="row-head">
+                <span>Thread</span>
+                <span>Context</span>
+                <span>Tokens</span>
+                <span>Efficiency</span>
+                <span>Reason</span>
+              </div>
+              <div class="row">
+                <div><span class="thread-title">Inspect project behavior</span><span class="meta">modex  gpt-5.5  high  standard</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="41,48,52,57,64,72,81" style="--spark-color: var(--orange)"></svg><span>81%</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="6,7,10,16,31,48,62" style="--spark-color: var(--blue)"></svg><span>62M</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="80,84,86,81,75,68,71" style="--spark-color: var(--mint)"></svg><span>good</span></div>
+                <span class="score">fast growth</span>
+              </div>
+              <div class="row">
+                <div><span class="thread-title">Continue thread context</span><span class="meta">bpmn-modeller  gpt-5.4  high  standard</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="72,74,77,81,84,87,91" style="--spark-color: var(--red)"></svg><span>91%</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="18,22,39,55,78,92,105" style="--spark-color: var(--blue)"></svg><span>105M</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="70,66,61,55,49,41,38" style="--spark-color: var(--red)"></svg><span>poor</span></div>
+                <span class="score">limit risk</span>
+              </div>
+              <div class="row">
+                <div><span class="thread-title">DM Import Work</span><span class="meta">sigma-backend  gpt-5.5  high  standard</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="28,31,35,37,41,42,44" style="--spark-color: var(--mint)"></svg><span>44%</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="24,28,38,59,92,143,177" style="--spark-color: var(--blue)"></svg><span>177M</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="78,74,70,66,58,52,44" style="--spark-color: var(--orange)"></svg><span>mixed</span></div>
+                <span class="score">359 files</span>
+              </div>
+              <div class="row">
+                <div><span class="thread-title">Explain empty content type</span><span class="meta">sigma-backend  gpt-5.5  high  standard</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="46,53,61,68,74,80,83" style="--spark-color: var(--orange)"></svg><span>83%</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="4,7,11,19,31,42,51" style="--spark-color: var(--blue)"></svg><span>51M</span></div>
+                <div class="metric-cell"><svg class="spark" data-spark="61,64,67,73,69,68,72" style="--spark-color: var(--mint)"></svg><span>steady</span></div>
+                <span class="score">near red</span>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="page" data-page="detail">
+          <div class="grid detail-grid">
+            <article class="panel">
+              <div class="panel-header">
+                <h2 class="panel-title">Thread Timeline</h2>
+                <span class="panel-note">context, compactions, failures</span>
+              </div>
+              <svg class="chart chart-tall" viewBox="0 0 620 252" role="img" aria-label="Thread timeline chart">
+                <line class="grid-line" x1="42" y1="38" x2="590" y2="38"></line>
+                <line class="grid-line" x1="42" y1="98" x2="590" y2="98"></line>
+                <line class="grid-line" x1="42" y1="158" x2="590" y2="158"></line>
+                <text x="6" y="42">90%</text>
+                <text x="6" y="102">65%</text>
+                <text x="6" y="162">40%</text>
+                <path class="area" d="M42,174 L90,166 L138,153 L186,134 L234,116 L282,92 L330,74 L378,188 L426,168 L474,143 L522,111 L590,78 L590,222 L42,222 Z"></path>
+                <path class="line-orange" d="M42,174 L90,166 L138,153 L186,134 L234,116 L282,92 L330,74 L378,188 L426,168 L474,143 L522,111 L590,78"></path>
+                <path class="line-blue" d="M42,210 L90,204 L138,194 L186,184 L234,172 L282,154 L330,140 L378,133 L426,122 L474,111 L522,101 L590,88"></path>
+                <path class="dash-red" d="M42,38 L590,38"></path>
+                <circle cx="378" cy="188" r="7" fill="var(--purple)"></circle>
+                <circle cx="522" cy="111" r="6" fill="var(--red)"></circle>
+                <text x="352" y="212">compact</text>
+                <text x="496" y="136">failures</text>
+                <text x="44" y="240">Mon</text>
+                <text x="548" y="240">Now</text>
+              </svg>
+              <div class="timeline">
+                <span class="marker" style="--x: 19%; --marker-color: var(--mint)" data-label="tests pass"></span>
+                <span class="marker" style="--x: 47%; --marker-color: var(--purple)" data-label="compact"></span>
+                <span class="marker" style="--x: 72%; --marker-color: var(--red)" data-label="6 failed"></span>
+                <span class="marker" style="--x: 88%; --marker-color: var(--blue)" data-label="PR ready"></span>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <h2 class="panel-title">Agent Read</h2>
+                <span class="panel-note">connected Codex only</span>
+              </div>
+              <div class="connection-card" id="connectionCard" data-state="unknown">
+                <div>
+                  <div class="connection-title"><span class="status-dot"></span><span id="connectionTitle">Codex Intelligence: unknown</span></div>
+                  <div class="connection-meta" id="connectionMeta">Source: local/running Codex agent. Test sends a tiny metrics-only bundle.</div>
+                </div>
+                <button class="test-button" id="testConnection">Test</button>
+              </div>
+              <div class="signal-grid">
+                <div class="signal">
+                  <b>Token economy</b>
+                  <p>Generated from summarized metrics. Hidden when no agent connection exists.</p>
+                </div>
+                <div class="signal">
+                  <b>Entropy reduction</b>
+                  <p>Requires evidence ids: compaction, recovered context, regrowth, failures.</p>
+                </div>
+                <div class="signal">
+                  <b>Usefulness</b>
+                  <p>Must be phrased as a confidence-bound inference, never as certainty.</p>
+                </div>
+                <div class="signal">
+                  <b>Efficiency</b>
+                  <p>Falls back to facts: duration, TTFT, tool calls, changed files, failures.</p>
+                </div>
+              </div>
+              <svg class="chart" viewBox="0 0 420 190" role="img" aria-label="Efficiency chart">
+                <line class="grid-line" x1="36" y1="38" x2="390" y2="38"></line>
+                <line class="grid-line" x1="36" y1="92" x2="390" y2="92"></line>
+                <line class="grid-line" x1="36" y1="146" x2="390" y2="146"></line>
+                <text x="5" y="42">high</text>
+                <text x="8" y="150">low</text>
+                <path class="line-mint" d="M36,130 L82,126 L128,116 L174,107 L220,96 L266,86 L312,75 L390,68"></path>
+                <path class="line-orange" d="M36,72 L82,80 L128,86 L174,105 L220,118 L266,111 L312,104 L390,118"></path>
+                <path class="line-purple" d="M36,150 L82,136 L128,116 L174,94 L220,78 L266,70 L312,74 L390,64"></path>
+              </svg>
+              <div class="legend">
+                <span><i class="dot" style="--dot-color: var(--mint)"></i>useful activity</span>
+                <span><i class="dot" style="--dot-color: var(--orange)"></i>failure cost</span>
+                <span><i class="dot" style="--dot-color: var(--purple)"></i>cache reuse</span>
+              </div>
+            </article>
+
+            <article class="panel wide">
+              <div class="panel-header">
+                <h2 class="panel-title">Insights Table</h2>
+                <span class="panel-note">evidence-backed queue</span>
+              </div>
+              <div class="thread-list">
+                <div class="row-head">
+                  <span>Signal</span>
+                  <span>Status</span>
+                  <span>Evidence</span>
+                  <span>Confidence</span>
+                  <span>Updated</span>
+                </div>
+                <div class="row">
+                  <div><span class="thread-title">Failed commands rising</span><span class="meta">sigma-backend · missing-tool exits repeated</span></div>
+                  <div class="metric-cell"><svg class="spark" data-spark="1,0,2,4,5,9,6" style="--spark-color: var(--red)"></svg><span>queued</span></div>
+                  <span class="score">12 exits</span>
+                  <span class="score">--</span>
+                  <span class="score">now</span>
+                </div>
+                <div class="row">
+                  <div><span class="thread-title">Context pressure regrew after compaction</span><span class="meta">modex · 6 turns since compaction</span></div>
+                  <div class="metric-cell"><svg class="spark" data-spark="83,31,42,55,67,76,81" style="--spark-color: var(--orange)"></svg><span>fresh</span></div>
+                  <span class="score">8 facts</span>
+                  <span class="score">0.76</span>
+                  <span class="score">2m</span>
+                </div>
+                <div class="row">
+                  <div><span class="thread-title">Slow turn cluster</span><span class="meta">bpmn-modeller · tool-heavy loop suspected</span></div>
+                  <div class="metric-cell"><svg class="spark" data-spark="4,5,7,16,21,18,20" style="--spark-color: var(--yellow)"></svg><span>offline</span></div>
+                  <span class="score">5 turns</span>
+                  <span class="score">--</span>
+                  <span class="score">18m</span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <div class="footer">
+          <span>Prototype only: fake data, dependency-free SVG/CSS charts</span>
+          <span>Narrative insight is agent-gated; facts and signals work offline</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const root = document.documentElement;
+    const pageButtons = document.querySelectorAll("[data-page-button]");
+    const pages = document.querySelectorAll("[data-page]");
+    const themeToggle = document.getElementById("themeToggle");
+    const connectionCard = document.getElementById("connectionCard");
+    const connectionTitle = document.getElementById("connectionTitle");
+    const connectionMeta = document.getElementById("connectionMeta");
+    const testConnection = document.getElementById("testConnection");
+    const failureInsight = document.getElementById("failureInsight");
+    const failureInsightResult = document.getElementById("failureInsightResult");
+
+    function setPage(name) {
+      pageButtons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.pageButton === name);
+      });
+      pages.forEach((page) => {
+        page.classList.toggle("active", page.dataset.page === name);
+      });
+    }
+
+    pageButtons.forEach((button) => {
+      button.addEventListener("click", () => setPage(button.dataset.pageButton));
+    });
+
+    themeToggle.addEventListener("click", () => {
+      const isBlack = root.dataset.theme === "black";
+      root.dataset.theme = isBlack ? "" : "black";
+      themeToggle.textContent = isBlack ? "Black" : "Light";
+    });
+
+    testConnection.addEventListener("click", () => {
+      connectionCard.dataset.state = "testing";
+      connectionTitle.textContent = "Codex Intelligence: testing";
+      connectionMeta.textContent = "Running structured prediction test with metrics-only sample data...";
+      testConnection.textContent = "Testing";
+
+      window.setTimeout(() => {
+        connectionCard.dataset.state = "connected";
+        connectionTitle.textContent = "Codex Intelligence: connected";
+        connectionMeta.textContent = "Verified structured insight output at 20:46. Narrative cards may be shown.";
+        testConnection.textContent = "Retest";
+        failureInsight.classList.add("enabled");
+        failureInsight.title = "Analyze failed command stats with Codex";
+      }, 650);
+    });
+
+    failureInsight.addEventListener("click", () => {
+      failureInsightResult.classList.add("visible");
+      if (connectionCard.dataset.state !== "connected") {
+        failureInsightResult.innerHTML = "<b>Codex Intelligence unavailable</b><p>Run the connection test first. Offline Modex can still create an Insights row with failure count, trend, and related threads.</p>";
+        return;
+      }
+      failureInsightResult.innerHTML = "<b>Insights row updated</b><p>Likely environmental friction: repeated missing-tool exits in two threads, followed by successful retries. Confidence 0.72. Evidence: exit codes, repeated command names, later successful command.</p>";
+    });
+
+    function sparkPath(values, width, height) {
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const span = Math.max(1, max - min);
+      const step = width / Math.max(1, values.length - 1);
+      return values.map((value, index) => {
+        const x = index * step;
+        const y = height - ((value - min) / span) * (height - 4) - 2;
+        return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(" ");
+    }
+
+    document.querySelectorAll("svg[data-spark]").forEach((svg) => {
+      const values = svg.dataset.spark.split(",").map(Number);
+      const width = 70;
+      const height = 28;
+      const line = sparkPath(values, width, height);
+      const fill = `${line} L${width},${height} L0,${height} Z`;
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.innerHTML = `<path class="fill" d="${fill}"></path><path d="${line}"></path>`;
+    });
+  </script>
+</body>
+</html>

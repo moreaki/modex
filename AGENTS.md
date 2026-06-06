@@ -69,6 +69,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 
 - Settings should feel like a native, calm macOS configuration surface, not a debug panel.
 - Keep the main settings tabs clear: General, Appearance, Context, and Expert.
+- If agent-assisted insight is added, expose Codex connectivity as a clear settings section with enablement, provider/source, credential state, privacy mode, test action, last-tested timestamp, and readable connection state. A green state must mean an end-to-end structured insight test succeeded, not merely that a token or executable was found.
 - Put uncommon parser and buffer tuning behind Expert.
 - Prefer controls that match intent:
   - segmented controls or chips for small exclusive choices
@@ -90,6 +91,9 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 
 - Calm beats clever. Use restraint, alignment, and spacing before adding decoration.
 - The app should feel like a polished utility: dense enough to be useful, quiet enough to leave open.
+- First-pass dashboard and popover designs must include real breathing room from the start. Rounded menu-bar windows need generous outer inset, comfortable top/title clearance, and enough bottom padding that the footer never feels clipped or pinned to the edge.
+- Do not pack every region edge-to-edge just because the content fits. Prefer a slightly larger popover with calm spacing over a compact surface that makes cards, rows, chips, or toolbar icons feel pressed against the glass.
+- Dense information surfaces still need hierarchy through whitespace: summary cards, status bars, insight chips, table rows, and footers should have visibly separate bands with consistent vertical rhythm.
 - Avoid noisy cards, nested cards, large rounded blocks, and ornamental backgrounds.
 - Use a harmonious threshold palette. Warning colors should escalate without looking random or harsh.
 - Keep light and dark themes equally designed; do not treat light mode as an afterthought.
