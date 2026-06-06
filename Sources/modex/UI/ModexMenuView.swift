@@ -6,6 +6,7 @@ struct ModexMenuView: View {
     let onRefresh: () -> Void
     let onOpenCodexFolder: () -> Void
     let onFlushScanCache: () -> Void
+    let onTestIntelligenceConnection: () -> Void
     let onSettingsChange: (ModexAppSettings) -> Void
     let onQuit: () -> Void
 
@@ -29,7 +30,7 @@ struct ModexMenuView: View {
         .padding(.top, 24)
         .padding(.horizontal, 24)
         .padding(.bottom, 20)
-        .frame(width: 920, height: 640)
+        .frame(width: 980, height: 720)
         .background(palette.background)
         .foregroundStyle(palette.text)
         .environment(\.modexPalette, palette)
@@ -79,6 +80,11 @@ struct ModexMenuView: View {
             if let latestRateLimits = model.summary?.latestRateLimits {
                 CodexRateLimitOverview(rateLimits: latestRateLimits)
             }
+            DashboardHistoryPanel(
+                summary: model.summary,
+                history: model.history,
+                thresholds: model.settings.contextThresholds
+            )
             DashboardInsightStrip(summary: model.summary, metrics: model.latestMetrics)
         }
     }
@@ -106,6 +112,7 @@ struct ModexMenuView: View {
                             SessionRow(
                                 session: indexedSession.session,
                                 index: indexedSession.index,
+                                history: model.history,
                                 thresholds: model.settings.contextThresholds,
                                 sessionDetailHoverDelayMilliseconds: model.settings.sessionDetailHoverDelayMilliseconds
                             )
@@ -169,8 +176,10 @@ struct ModexMenuView: View {
                         get: { model.settings },
                         set: { onSettingsChange($0) }
                     ),
+                    intelligenceConnectionState: model.intelligenceConnectionState,
                     onOpenCodexFolder: onOpenCodexFolder,
-                    onFlushScanCache: onFlushScanCache
+                    onFlushScanCache: onFlushScanCache,
+                    onTestIntelligenceConnection: onTestIntelligenceConnection
                 )
             }
 
@@ -434,6 +443,7 @@ struct ModexThreadDetailWindow: View {
         case .overview:
             ThreadOverviewTab(
                 sessions: filteredSessions,
+                history: model.history,
                 thresholds: model.settings.contextThresholds,
                 sessionDetailHoverDelayMilliseconds: model.settings.sessionDetailHoverDelayMilliseconds
             )
@@ -455,8 +465,20 @@ struct ModexThreadDetailWindow: View {
                 cards: activityCards,
                 leaders: activityLeaders
             )
+        case .insights:
+            ThreadInsightsTab(insights: filteredInsights)
         case .diagnostics:
             ThreadDiagnosticsTab(metrics: model.latestMetrics)
+        }
+    }
+
+    private var filteredInsights: [ModexInsight] {
+        let keys = Set(filteredSessions.map(ModexHistorySnapshot.sessionKey(for:)))
+        return model.insights.filter { insight in
+            guard let sessionKey = insight.sessionKey else {
+                return true
+            }
+            return keys.contains(sessionKey)
         }
     }
 
@@ -491,14 +513,26 @@ struct ModexThreadDetailWindow: View {
         filteredSessions
             .sorted { $0.latestContextGrowthTokens > $1.latestContextGrowthTokens }
             .prefix(8)
-            .map { ThreadLeaderRow(session: $0, value: "+\(compact($0.latestContextGrowthTokens))") }
+            .map {
+                ThreadLeaderRow(
+                    session: $0,
+                    value: "+\(compact($0.latestContextGrowthTokens))",
+                    trendValues: totalTrendValues(for: $0, history: model.history)
+                )
+            }
     }
 
     private var performanceLeaders: [ThreadLeaderRow] {
         filteredSessions
             .sorted { ($0.lastTurnDurationMilliseconds ?? 0) > ($1.lastTurnDurationMilliseconds ?? 0) }
             .prefix(8)
-            .map { ThreadLeaderRow(session: $0, value: millisecondsText($0.lastTurnDurationMilliseconds)) }
+            .map {
+                ThreadLeaderRow(
+                    session: $0,
+                    value: millisecondsText($0.lastTurnDurationMilliseconds),
+                    trendValues: durationTrendValues(for: $0, history: model.history)
+                )
+            }
     }
 
     private var activityLeaders: [ThreadLeaderRow] {
@@ -510,7 +544,13 @@ struct ModexThreadDetailWindow: View {
                 return lhs.failedCommandEvents > rhs.failedCommandEvents
             }
             .prefix(8)
-            .map { ThreadLeaderRow(session: $0, value: ModexStrings.format("detail.activityValue", $0.commandEvents, $0.failedCommandEvents)) }
+            .map {
+                ThreadLeaderRow(
+                    session: $0,
+                    value: ModexStrings.format("detail.activityValue", $0.commandEvents, $0.failedCommandEvents),
+                    trendValues: failedCommandTrendValues(for: $0, history: model.history)
+                )
+            }
     }
 }
 
@@ -519,6 +559,7 @@ private enum ThreadDetailTab: String, CaseIterable, Identifiable {
     case tokens
     case performance
     case activity
+    case insights
     case diagnostics
 
     var id: String { rawValue }
@@ -533,6 +574,8 @@ private enum ThreadDetailTab: String, CaseIterable, Identifiable {
             return ModexStrings.text("detail.performance")
         case .activity:
             return ModexStrings.text("detail.activity")
+        case .insights:
+            return ModexStrings.text("detail.insights")
         case .diagnostics:
             return ModexStrings.text("detail.diagnostics")
         }
@@ -548,6 +591,8 @@ private enum ThreadDetailTab: String, CaseIterable, Identifiable {
             return "speedometer"
         case .activity:
             return "terminal"
+        case .insights:
+            return "sparkles"
         case .diagnostics:
             return "stethoscope"
         }
@@ -563,6 +608,7 @@ private struct ThreadProjectFilter: Hashable, Identifiable {
 
 private struct ThreadOverviewTab: View {
     let sessions: [SessionSnapshot]
+    let history: ModexHistorySnapshot?
     let thresholds: ModexContextThresholds
     let sessionDetailHoverDelayMilliseconds: Int
 
@@ -578,6 +624,7 @@ private struct ThreadOverviewTab: View {
                         SessionRow(
                             session: indexedSession.session,
                             index: indexedSession.index,
+                            history: history,
                             thresholds: thresholds,
                             sessionDetailHoverDelayMilliseconds: sessionDetailHoverDelayMilliseconds
                         )
@@ -692,6 +739,7 @@ private struct ThreadLeaderRow: Identifiable {
     let id = UUID()
     let session: SessionSnapshot
     let value: String
+    var trendValues: [Double] = []
 }
 
 private struct ThreadLeaderRowView: View {
@@ -711,6 +759,10 @@ private struct ThreadLeaderRowView: View {
                     .lineLimit(1)
             }
             Spacer()
+            if row.trendValues.count > 1 {
+                MiniSparkline(values: row.trendValues, color: palette.accent.opacity(0.76), fill: false)
+                    .frame(width: 52, height: 18)
+            }
             Text(row.value)
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(palette.secondaryText)
@@ -722,6 +774,259 @@ private struct ThreadLeaderRowView: View {
             Rectangle()
                 .fill(palette.surface.opacity(0.25))
                 .frame(height: 1)
+        }
+    }
+}
+
+private struct ThreadInsightsTab: View {
+    let insights: [ModexInsight]
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                    ],
+                    spacing: 12
+                ) {
+                    ThreadMetricCardView(
+                        card: ThreadMetricCard(
+                            title: ModexStrings.text("insights.total"),
+                            value: "\(insights.count)",
+                            detail: ModexStrings.text("insights.totalDetail")
+                        )
+                    )
+                    ThreadMetricCardView(
+                        card: ThreadMetricCard(
+                            title: ModexStrings.text("insights.critical"),
+                            value: "\(insights.filter { $0.severity == .critical }.count)",
+                            detail: ModexStrings.text("insights.criticalDetail")
+                        )
+                    )
+                    ThreadMetricCardView(
+                        card: ThreadMetricCard(
+                            title: ModexStrings.text("insights.agentGated"),
+                            value: "\(insights.filter { $0.status == .agentUnavailable }.count)",
+                            detail: ModexStrings.text("insights.agentGatedDetail")
+                        )
+                    )
+                    ThreadMetricCardView(
+                        card: ThreadMetricCard(
+                            title: ModexStrings.text("insights.evidence"),
+                            value: "\(insights.reduce(0) { $0 + $1.evidenceCount })",
+                            detail: ModexStrings.text("insights.evidenceDetail")
+                        )
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(ModexStrings.text("detail.insights"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.secondaryText)
+
+                    VStack(spacing: 0) {
+                        insightsHeader
+                        if insights.isEmpty {
+                            Text(ModexStrings.text("insights.empty"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(palette.mutedText)
+                                .frame(maxWidth: .infinity, minHeight: 120)
+                        } else {
+                            ForEach(insights) { insight in
+                                InsightRowView(insight: insight)
+                            }
+                        }
+                    }
+                    .background(palette.sidebar.opacity(0.66))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(palette.surface.opacity(0.45), lineWidth: 0.7)
+                    }
+                }
+            }
+            .padding(22)
+        }
+    }
+
+    private var insightsHeader: some View {
+        HStack(spacing: 12) {
+            Text(ModexStrings.text("insights.signal"))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(ModexStrings.text("insights.status"))
+                .frame(width: 98, alignment: .leading)
+            Text(ModexStrings.text("insights.evidence"))
+                .frame(width: 84, alignment: .trailing)
+            Text(ModexStrings.text("insights.updated"))
+                .frame(width: 90, alignment: .trailing)
+        }
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(palette.mutedText)
+        .textCase(.uppercase)
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(palette.surface.opacity(0.32))
+                .frame(height: 1)
+        }
+    }
+}
+
+private struct InsightRowView: View {
+    let insight: ModexInsight
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Circle()
+                    .fill(severityColor)
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 5)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.text)
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(palette.mutedText)
+                        .lineLimit(2)
+                    Text(source)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(palette.mutedText.opacity(0.86))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(statusText)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(statusColor)
+                .lineLimit(1)
+                .frame(width: 98, alignment: .leading)
+
+            Text("\(insight.evidenceCount)")
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(palette.secondaryText)
+                .frame(width: 84, alignment: .trailing)
+
+            UpdatedCell(updatedAt: insight.updatedAt)
+                .frame(width: 90, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 62)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(palette.surface.opacity(0.24))
+                .frame(height: 1)
+        }
+        .help(helpText)
+    }
+
+    private var title: String {
+        switch insight.kind {
+        case .highContext:
+            return ModexStrings.text("insights.highContext")
+        case .contextGrowth:
+            return ModexStrings.text("insights.contextGrowth")
+        case .failedCommands:
+            return ModexStrings.text("insights.failedCommands")
+        case .slowTurn:
+            return ModexStrings.text("insights.slowTurn")
+        case .repeatedCompactions:
+            return ModexStrings.text("insights.repeatedCompactions")
+        case .highCacheReuse:
+            return ModexStrings.text("insights.highCacheReuse")
+        case .scanSlow:
+            return ModexStrings.text("insights.scanSlow")
+        case .cacheCold:
+            return ModexStrings.text("insights.cacheCold")
+        }
+    }
+
+    private var detail: String {
+        let thread = insight.threadName ?? insight.projectTitle ?? ModexStrings.text("overview.codexSession")
+        switch insight.kind {
+        case .highContext:
+            return ModexStrings.format("insights.highContextDetail", percentText(insight.primaryValue), thread)
+        case .contextGrowth:
+            return ModexStrings.format("insights.contextGrowthDetail", percentText(insight.primaryValue), thread)
+        case .failedCommands:
+            return ModexStrings.format("insights.failedCommandsDetail", insight.count ?? 0, thread)
+        case .slowTurn:
+            return ModexStrings.format("insights.slowTurnDetail", millisecondsText(insight.primaryValue.map(Int.init)), thread)
+        case .repeatedCompactions:
+            return ModexStrings.format("insights.repeatedCompactionsDetail", insight.count ?? Int(insight.primaryValue ?? 0), thread)
+        case .highCacheReuse:
+            return ModexStrings.format("insights.highCacheReuseDetail", percentText(insight.primaryValue), thread)
+        case .scanSlow:
+            return ModexStrings.format("insights.scanSlowDetail", formatDuration(insight.primaryValue ?? 0))
+        case .cacheCold:
+            return ModexStrings.text("insights.cacheColdDetail")
+        }
+    }
+
+    private var source: String {
+        if let projectTitle = insight.projectTitle {
+            return projectTitle
+        }
+        if let sourcePath = insight.sourcePath {
+            return sourcePath
+        }
+        return ModexStrings.text("insights.global")
+    }
+
+    private var helpText: String {
+        [
+            title,
+            detail,
+            source,
+            statusText,
+        ]
+        .joined(separator: "\n")
+    }
+
+    private var severityColor: Color {
+        switch insight.severity {
+        case .info:
+            return .teal
+        case .notice:
+            return ModexTheme.noticeContextColor
+        case .warning:
+            return ModexTheme.warningContextColor
+        case .critical:
+            return ModexTheme.criticalContextColor
+        }
+    }
+
+    private var statusColor: Color {
+        switch insight.status {
+        case .deterministic:
+            return .teal
+        case .agentUnavailable:
+            return ModexTheme.noticeContextColor
+        case .stale:
+            return palette.mutedText
+        }
+    }
+
+    private var statusText: String {
+        switch insight.status {
+        case .deterministic:
+            return ModexStrings.text("insights.statusLocal")
+        case .agentUnavailable:
+            return ModexStrings.text("insights.statusAgent")
+        case .stale:
+            return ModexStrings.text("insights.statusStale")
         }
     }
 }
@@ -1037,6 +1342,124 @@ private struct DashboardInsight: Identifiable {
     let id: String
     let title: String
     let value: String
+}
+
+private struct DashboardHistoryPanel: View {
+    let summary: ModexSummary?
+    let history: ModexHistorySnapshot?
+    let thresholds: ModexContextThresholds
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TrendMiniCard(
+                title: ModexStrings.text("history.contextPressure"),
+                value: percentText(highestContextSession?.contextUsagePercent),
+                detail: highestContextSession.map { $0.threadName ?? projectTitle(for: $0) }
+                    ?? ModexStrings.text("overview.noMetrics"),
+                values: highestContextSession.map { contextTrendValues(for: $0, history: history) } ?? [],
+                color: contextColor
+            )
+
+            TrendMiniCard(
+                title: ModexStrings.text("history.tokenGrowth"),
+                value: topTokenSession.map { compact($0.totalTokens) } ?? "0",
+                detail: topTokenSession.map { $0.threadName ?? projectTitle(for: $0) }
+                    ?? ModexStrings.text("overview.noMetrics"),
+                values: topTokenSession.map { totalTrendValues(for: $0, history: history) } ?? [],
+                color: palette.accent
+            )
+
+            TrendMiniCard(
+                title: ModexStrings.text("history.scanHealth"),
+                value: scanDurationText,
+                detail: cacheDetail,
+                values: history?.scanSamples.map(\.durationSeconds) ?? [],
+                color: palette.secondaryText
+            )
+        }
+    }
+
+    private var sessions: [SessionSnapshot] {
+        summary?.sessions ?? []
+    }
+
+    private var highestContextSession: SessionSnapshot? {
+        sessions.max { ($0.contextUsagePercent ?? -1) < ($1.contextUsagePercent ?? -1) }
+    }
+
+    private var topTokenSession: SessionSnapshot? {
+        sessions.max { $0.totalTokens < $1.totalTokens }
+    }
+
+    private var contextColor: Color {
+        ModexTheme.contextColor(
+            for: highestContextSession?.contextUsagePercent ?? 0,
+            thresholds: thresholds
+        )
+    }
+
+    private var scanDurationText: String {
+        guard let seconds = summary?.scanMetrics?.durationSeconds else {
+            return ModexStrings.text("overview.contextUnavailable")
+        }
+        return formatDuration(seconds)
+    }
+
+    private var cacheDetail: String {
+        guard let metrics = summary?.scanMetrics, metrics.cacheEnabled, metrics.filesSelected > 0 else {
+            return ModexStrings.text("instrumentation.cacheOff")
+        }
+        let hitRate = Int((Double(metrics.cacheHits) / Double(metrics.filesSelected) * 100).rounded())
+        return ModexStrings.format("history.cacheHitRate", hitRate)
+    }
+}
+
+private struct TrendMiniCard: View {
+    let title: String
+    let value: String
+    let detail: String
+    let values: [Double]
+    let color: Color
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+                Text(value)
+                    .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(detail)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 4)
+
+            MiniSparkline(values: values, color: color, fill: true)
+                .frame(width: 86, height: 34)
+                .opacity(values.count > 1 ? 1 : 0.22)
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity)
+        .frame(height: 66)
+        .background(palette.sidebar.opacity(0.58))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(palette.surface.opacity(0.42), lineWidth: 0.7)
+        }
+    }
 }
 
 private struct DashboardTopThreadsPanel: View {
@@ -1363,11 +1786,11 @@ private enum OverviewColumn: String, CaseIterable, Identifiable {
         case .context:
             return 104
         case .total:
-            return 70
+            return 92
         case .median:
-            return 76
+            return 94
         case .average:
-            return 66
+            return 90
         case .compact:
             return 62
         case .updated:
@@ -1548,6 +1971,7 @@ private struct ColumnHelpCard: View {
 private struct SessionRow: View {
     let session: SessionSnapshot
     let index: Int
+    let history: ModexHistorySnapshot?
     let thresholds: ModexContextThresholds
     let sessionDetailHoverDelayMilliseconds: Int
     @Environment(\.modexPalette) private var palette
@@ -1561,25 +1985,29 @@ private struct SessionRow: View {
             ContextMeter(
                 percent: session.contextUsagePercent,
                 thresholds: thresholds,
+                trendValues: contextTrendValues(for: session, history: history),
                 accessibilityLabel: contextStatusText
             )
                 .frame(width: OverviewColumn.context.width, alignment: .trailing)
             numberCell(
                 compact(session.totalTokens),
                 exactValue: exactTotalTokensValue,
-                accessibilityLabel: exactTotalTokensText
+                accessibilityLabel: exactTotalTokensText,
+                trendValues: totalTrendValues(for: session, history: history)
             )
                 .frame(width: OverviewColumn.total.width, alignment: .trailing)
             numberCell(
                 compact(session.medianTurnTokens),
                 exactValue: exactMedianTurnTokensValue,
-                accessibilityLabel: exactMedianTurnTokensText
+                accessibilityLabel: exactMedianTurnTokensText,
+                trendValues: medianTurnTrendValues(for: session, history: history)
             )
                 .frame(width: OverviewColumn.median.width, alignment: .trailing)
             numberCell(
                 compact(session.averageTurnTokens),
                 exactValue: exactAverageTurnTokensValue,
-                accessibilityLabel: exactAverageTurnTokensText
+                accessibilityLabel: exactAverageTurnTokensText,
+                trendValues: averageTurnTrendValues(for: session, history: history)
             )
                 .frame(width: OverviewColumn.average.width, alignment: .trailing)
             numberCell("\(session.compactionEvents)")
@@ -1613,12 +2041,18 @@ private struct SessionRow: View {
     }
 
     @ViewBuilder
-    private func numberCell(_ value: String, exactValue: String? = nil, accessibilityLabel: String? = nil) -> some View {
+    private func numberCell(
+        _ value: String,
+        exactValue: String? = nil,
+        accessibilityLabel: String? = nil,
+        trendValues: [Double] = []
+    ) -> some View {
         if let exactValue {
             ExactNumberCell(
                 value: value,
                 exactValue: exactValue,
-                accessibilityLabel: accessibilityLabel ?? exactValue
+                accessibilityLabel: accessibilityLabel ?? exactValue,
+                trendValues: trendValues
             )
         } else {
             numberText(value)
@@ -1775,29 +2209,39 @@ private struct ExactNumberCell: View {
     let value: String
     let exactValue: String
     let accessibilityLabel: String
+    let trendValues: [Double]
 
     @Environment(\.modexPalette) private var palette
     @State private var isHovered = false
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            Text(value)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(palette.secondaryText)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .opacity(isHovered ? 0 : 1)
-                .scaleEffect(isHovered ? 0.96 : 1, anchor: .trailing)
+        HStack(spacing: 4) {
+            if trendValues.count > 1 {
+                MiniSparkline(values: trendValues, color: palette.accent.opacity(0.78), fill: false)
+                    .frame(width: 28, height: 14)
+                    .opacity(isHovered ? 0.35 : 0.78)
+            }
 
-            Text(exactValue)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(palette.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.68)
-                .allowsTightening(true)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .opacity(isHovered ? 1 : 0)
-                .scaleEffect(isHovered ? 1 : 0.96, anchor: .trailing)
+            ZStack(alignment: .trailing) {
+                Text(value)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .opacity(isHovered ? 0 : 1)
+                    .scaleEffect(isHovered ? 0.96 : 1, anchor: .trailing)
+
+                Text(exactValue)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.58)
+                    .allowsTightening(true)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .opacity(isHovered ? 1 : 0)
+                    .scaleEffect(isHovered ? 1 : 0.96, anchor: .trailing)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
@@ -1919,7 +2363,7 @@ private struct UpdatedCell: View {
         return ModexStrings.format("overview.updated", Self.exactText(for: updatedAt))
     }
 
-    private static func exactText(for date: Date) -> String {
+    fileprivate static func exactText(for date: Date) -> String {
         exactFormatter.string(from: date)
     }
 }
@@ -1927,23 +2371,33 @@ private struct UpdatedCell: View {
 private struct ContextMeter: View {
     let percent: Double?
     let thresholds: ModexContextThresholds
+    var trendValues: [Double] = []
     let accessibilityLabel: String
     @Environment(\.modexPalette) private var palette
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
+            if trendValues.count > 1 {
+                MiniSparkline(
+                    values: trendValues,
+                    color: contextColor.opacity(0.82),
+                    fill: false
+                )
+                .frame(width: 28, height: 14)
+            }
+
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule()
                         .fill(palette.surface.opacity(0.32))
                     if let percent {
                         Capsule()
-                            .fill(ModexTheme.contextColor(for: percent, thresholds: thresholds).opacity(0.90))
+                            .fill(contextColor.opacity(0.90))
                             .frame(width: max(3, proxy.size.width * min(max(percent, 0), 100) / 100))
                     }
                 }
             }
-            .frame(width: 36, height: 6)
+            .frame(width: trendValues.count > 1 ? 24 : 36, height: 6)
 
             Text(percent.map { "\(Int($0.rounded()))%" } ?? ModexStrings.text("overview.contextUnavailable"))
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -1953,6 +2407,81 @@ private struct ContextMeter: View {
         .padding(.horizontal, 5)
         .help(accessibilityLabel)
         .accessibilityLabel(Text(accessibilityLabel))
+    }
+
+    private var contextColor: Color {
+        ModexTheme.contextColor(for: percent ?? 0, thresholds: thresholds)
+    }
+}
+
+private struct MiniSparkline: View {
+    let values: [Double]
+    let color: Color
+    var fill = false
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        GeometryReader { proxy in
+            let points = normalizedPoints(in: proxy.size)
+            ZStack {
+                if fill, points.count > 1 {
+                    filledPath(points: points, size: proxy.size)
+                        .fill(color.opacity(0.13))
+                }
+
+                sparkPath(points: points)
+                    .stroke(
+                        values.count > 1 ? color : palette.surface.opacity(0.7),
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                    )
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func normalizedPoints(in size: CGSize) -> [CGPoint] {
+        let cleanValues = values.filter { $0.isFinite }
+        guard cleanValues.count > 1 else {
+            return [
+                CGPoint(x: 0, y: size.height / 2),
+                CGPoint(x: size.width, y: size.height / 2),
+            ]
+        }
+
+        let minValue = cleanValues.min() ?? 0
+        let maxValue = cleanValues.max() ?? minValue
+        let span = max(maxValue - minValue, 0.0001)
+        let step = size.width / CGFloat(max(cleanValues.count - 1, 1))
+
+        return cleanValues.enumerated().map { index, value in
+            let x = CGFloat(index) * step
+            let normalized = (value - minValue) / span
+            let y = size.height - CGFloat(normalized) * (size.height - 4) - 2
+            return CGPoint(x: x, y: y)
+        }
+    }
+
+    private func sparkPath(points: [CGPoint]) -> Path {
+        var path = Path()
+        guard let first = points.first else {
+            return path
+        }
+        path.move(to: first)
+        for point in points.dropFirst() {
+            path.addLine(to: point)
+        }
+        return path
+    }
+
+    private func filledPath(points: [CGPoint], size: CGSize) -> Path {
+        var path = sparkPath(points: points)
+        if let last = points.last, let first = points.first {
+            path.addLine(to: CGPoint(x: last.x, y: size.height))
+            path.addLine(to: CGPoint(x: first.x, y: size.height))
+            path.closeSubpath()
+        }
+        return path
     }
 }
 
@@ -2341,8 +2870,10 @@ private struct InstrumentationDetail: Identifiable {
 
 private struct ConfigurationView: View {
     @Binding var settings: ModexAppSettings
+    let intelligenceConnectionState: ModexIntelligenceConnectionState
     let onOpenCodexFolder: () -> Void
     let onFlushScanCache: () -> Void
+    let onTestIntelligenceConnection: () -> Void
     @Environment(\.modexPalette) private var palette
     @State private var selectedSection = 0
 
@@ -2371,7 +2902,8 @@ private struct ConfigurationView: View {
                     PaletteSegmentedOption(value: 0, title: ModexStrings.text("config.general")),
                     PaletteSegmentedOption(value: 1, title: ModexStrings.text("config.appearance")),
                     PaletteSegmentedOption(value: 2, title: ModexStrings.text("config.context")),
-                    PaletteSegmentedOption(value: 3, title: ModexStrings.text("config.expert")),
+                    PaletteSegmentedOption(value: 3, title: ModexStrings.text("config.intelligence")),
+                    PaletteSegmentedOption(value: 4, title: ModexStrings.text("config.expert")),
                 ],
                 selection: $selectedSection
             )
@@ -2385,6 +2917,8 @@ private struct ConfigurationView: View {
                         appearanceSettings
                     case 2:
                         contextSettings
+                    case 3:
+                        intelligenceSettings
                     default:
                         expertSettings
                     }
@@ -2401,7 +2935,7 @@ private struct ConfigurationView: View {
             }
         }
         .padding(18)
-        .frame(width: 480, height: 430, alignment: .top)
+        .frame(width: 560, height: 460, alignment: .top)
         .background(palette.background)
     }
 
@@ -2594,6 +3128,76 @@ private struct ConfigurationView: View {
         }
     }
 
+    private var intelligenceSettings: some View {
+        settingsSection(
+            title: ModexStrings.text("config.intelligenceSection"),
+            symbol: "sparkles",
+            tint: .cyan
+        ) {
+            settingsRow(
+                icon: "sparkles",
+                tint: .cyan,
+                title: ModexStrings.text("config.intelligenceEnabled"),
+                detail: ModexStrings.text("config.intelligenceEnabledHelp")
+            ) {
+                PaletteToggle(
+                    isOn: Binding(
+                        get: { settings.intelligence.enabled },
+                        set: { settings = updatedSettings(intelligenceEnabled: $0) }
+                    ),
+                    label: ModexStrings.text("config.intelligenceEnabled")
+                )
+            }
+
+            settingsRow(
+                icon: "point.3.connected.trianglepath.dotted",
+                tint: .cyan,
+                title: ModexStrings.text("config.intelligenceProvider"),
+                detail: ModexStrings.text("config.intelligenceProviderHelp")
+            ) {
+                PaletteSegmentedControl(
+                    options: ModexIntelligenceProvider.allCases.map {
+                        PaletteSegmentedOption(value: $0, title: $0.title)
+                    },
+                    selection: Binding(
+                        get: { settings.intelligence.provider },
+                        set: { settings = updatedSettings(intelligenceProvider: $0) }
+                    )
+                )
+                .frame(width: 220)
+            }
+
+            settingsRow(
+                icon: intelligenceStatusIcon,
+                tint: intelligenceStatusColor,
+                title: ModexStrings.text("config.intelligenceStatus"),
+                detail: intelligenceStatusDetail
+            ) {
+                HStack(spacing: 8) {
+                    Text(intelligenceStatusTitle)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(intelligenceStatusColor)
+                        .lineLimit(1)
+                        .frame(width: 92, alignment: .trailing)
+
+                    Button {
+                        onTestIntelligenceConnection()
+                    } label: {
+                        Text(ModexStrings.text("config.testConnection"))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(canTestIntelligence ? Color.white : palette.mutedText)
+                            .padding(.horizontal, 10)
+                            .frame(height: 28)
+                            .background(canTestIntelligence ? palette.accent : palette.surface.opacity(0.42))
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canTestIntelligence)
+                }
+            }
+        }
+    }
+
     private var expertSettings: some View {
         settingsSection(
             title: ModexStrings.text("config.parserSection"),
@@ -2756,6 +3360,8 @@ private struct ConfigurationView: View {
         redPercent: Double? = nil,
         colorTheme: ModexColorTheme? = nil,
         language: ModexLanguage? = nil,
+        intelligenceEnabled: Bool? = nil,
+        intelligenceProvider: ModexIntelligenceProvider? = nil,
         sessionDetailHoverDelayMilliseconds: Int? = nil,
         maximumConcurrentParses: Int? = nil,
         chunkSizeKB: Int? = nil,
@@ -2790,6 +3396,13 @@ private struct ConfigurationView: View {
         if let language {
             next.language = language
         }
+        if let intelligenceEnabled {
+            next.intelligence.enabled = intelligenceEnabled
+        }
+        if let intelligenceProvider {
+            next.intelligence.provider = intelligenceProvider
+            next.intelligence.enabled = intelligenceProvider != .off
+        }
         if let sessionDetailHoverDelayMilliseconds {
             next.sessionDetailHoverDelayMilliseconds = sessionDetailHoverDelayMilliseconds
         }
@@ -2806,6 +3419,76 @@ private struct ConfigurationView: View {
             next.parserTuning.sessionIndexLineBufferKB = sessionIndexLineBufferKB
         }
         return next.normalized()
+    }
+
+    private var canTestIntelligence: Bool {
+        settings.intelligence.enabled && settings.intelligence.provider != .off
+    }
+
+    private var intelligenceStatusIcon: String {
+        switch intelligenceConnectionState {
+        case .off:
+            return "power"
+        case .unknown:
+            return "questionmark.circle"
+        case .testing:
+            return "hourglass"
+        case .connected:
+            return "checkmark.seal"
+        case .limited:
+            return "exclamationmark.triangle"
+        case .failed:
+            return "xmark.octagon"
+        }
+    }
+
+    private var intelligenceStatusColor: Color {
+        switch intelligenceConnectionState {
+        case .off, .unknown:
+            return palette.mutedText
+        case .testing:
+            return ModexTheme.noticeContextColor
+        case .connected:
+            return .teal
+        case .limited:
+            return ModexTheme.noticeContextColor
+        case .failed:
+            return ModexTheme.criticalContextColor
+        }
+    }
+
+    private var intelligenceStatusTitle: String {
+        switch intelligenceConnectionState {
+        case .off:
+            return ModexStrings.text("config.intelligenceStatusOff")
+        case .unknown:
+            return ModexStrings.text("config.intelligenceStatusUnknown")
+        case .testing:
+            return ModexStrings.text("config.intelligenceStatusTesting")
+        case .connected:
+            return ModexStrings.text("config.intelligenceStatusConnected")
+        case .limited:
+            return ModexStrings.text("config.intelligenceStatusLimited")
+        case .failed:
+            return ModexStrings.text("config.intelligenceStatusFailed")
+        }
+    }
+
+    private var intelligenceStatusDetail: String {
+        switch intelligenceConnectionState {
+        case .off:
+            return ModexStrings.text("config.intelligenceStatusOffHelp")
+        case .unknown:
+            return ModexStrings.text("config.intelligenceStatusUnknownHelp")
+        case .testing:
+            return ModexStrings.text("config.intelligenceStatusTestingHelp")
+        case .connected(let date):
+            return ModexStrings.format("config.intelligenceStatusConnectedHelp", UpdatedCell.exactText(for: date))
+        case .limited:
+            return ModexStrings.text("config.intelligenceStatusLimitedHelp")
+        case .failed:
+            return ModexStrings.text("config.intelligenceStatusFailedHelp")
+        }
     }
 }
 
@@ -3397,6 +4080,92 @@ func median(_ values: [Int]) -> Int? {
         return (sorted[middle - 1] + sorted[middle]) / 2
     }
     return sorted[middle]
+}
+
+func contextTrendValues(
+    for session: SessionSnapshot,
+    history: ModexHistorySnapshot?,
+    limit: Int = 14
+) -> [Double] {
+    let historyValues = history?.samples(for: session)
+        .compactMap(\.contextPercent) ?? []
+    if historyValues.count > 1 {
+        return Array(historyValues.suffix(limit))
+    }
+
+    let values = session.tokenEvents.compactMap { event -> Double? in
+        guard let window = event.modelContextWindow, window > 0 else {
+            return nil
+        }
+        return Double(event.lastUsage.inputTokens) / Double(window) * 100
+    }
+    return Array(values.suffix(limit))
+}
+
+func totalTrendValues(
+    for session: SessionSnapshot,
+    history: ModexHistorySnapshot?,
+    limit: Int = 14
+) -> [Double] {
+    let historyValues = history?.samples(for: session)
+        .map { Double($0.totalTokens) } ?? []
+    if historyValues.count > 1 {
+        return Array(historyValues.suffix(limit))
+    }
+
+    let values = session.tokenEvents
+        .map { Double($0.totalUsage.totalTokens) }
+        .filter { $0 > 0 }
+    return Array(values.suffix(limit))
+}
+
+func medianTurnTrendValues(
+    for session: SessionSnapshot,
+    history: ModexHistorySnapshot?,
+    limit: Int = 14
+) -> [Double] {
+    let values = history?.samples(for: session)
+        .map { Double($0.medianTurnTokens) }
+        .filter { $0 > 0 } ?? []
+    return Array(values.suffix(limit))
+}
+
+func averageTurnTrendValues(
+    for session: SessionSnapshot,
+    history: ModexHistorySnapshot?,
+    limit: Int = 14
+) -> [Double] {
+    let values = history?.samples(for: session)
+        .map { Double($0.averageTurnTokens) }
+        .filter { $0 > 0 } ?? []
+    return Array(values.suffix(limit))
+}
+
+func durationTrendValues(
+    for session: SessionSnapshot,
+    history: ModexHistorySnapshot?,
+    limit: Int = 14
+) -> [Double] {
+    let historyValues = history?.samples(for: session)
+        .compactMap(\.lastTurnDurationMilliseconds)
+        .map(Double.init) ?? []
+    if historyValues.count > 1 {
+        return Array(historyValues.suffix(limit))
+    }
+    return Array(session.turnDurationsMilliseconds.map(Double.init).suffix(limit))
+}
+
+func failedCommandTrendValues(
+    for session: SessionSnapshot,
+    history: ModexHistorySnapshot?,
+    limit: Int = 14
+) -> [Double] {
+    let values = history?.samples(for: session)
+        .map { Double($0.failedCommandEvents) } ?? []
+    if values.count > 1 {
+        return Array(values.suffix(limit))
+    }
+    return session.failedCommandEvents > 0 ? [0, Double(session.failedCommandEvents)] : []
 }
 
 func dashboardAttentionScore(_ session: SessionSnapshot) -> Double {

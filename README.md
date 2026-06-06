@@ -10,6 +10,8 @@ It reads local Codex JSONL data from `~/.codex`, keeps the menu quick with strea
 - A Codex `/status` style overview with context left plus 5h and 7d limit bars when those values are present in local logs.
 - A compact per-thread table grouped by project, using Codex `thread_name` as the row title and the session id as secondary metadata.
 - Per-thread context usage, model, reasoning effort, speed, total tokens, median/average turn tokens, compaction count, and last update age.
+- Persistent history-backed trend cards and sparklines for context pressure, token growth, scan health, turn size, duration, and failure activity.
+- A detached detail-window Insights tab with deterministic, evidence-backed signals such as high context, failed commands, slow turns, repeated compactions, high cache reuse, slow scans, and cold cache behavior.
 - Calm hover details for full session/project/file information and exact token values.
 - Last-read instrumentation: duration, bytes read, parsed files, active/configured concurrency, parser buffers, cache hits/misses, and slowest files.
 
@@ -71,10 +73,21 @@ Defaults:
 - Theme: System.
 - Language: System.
 - Row-detail hover delay: 500 ms.
+- Agent insights: off.
 
-General settings cover scan limit, refresh interval, archived-session inclusion, scan cache enablement, cache flushing, and the Codex data folder. Appearance settings cover System/Black theme, language, and hover delay. Context settings tune the warning thresholds. Expert settings tune parser concurrency and buffer sizes.
+General settings cover scan limit, refresh interval, archived-session inclusion, scan cache enablement, cache flushing, and the Codex data folder. Appearance settings cover System/Black theme, language, and hover delay. Context settings tune the warning thresholds. Intelligence settings control optional Codex-assisted interpretation. Expert settings tune parser concurrency and buffer sizes.
+
+The Intelligence settings section controls optional Codex-assisted narrative interpretation. The current production behavior is deterministic and local-first: Modex shows facts, charts, sparklines, and reason-coded insights without sending prompt text anywhere. The local Codex connection test reports `Limited` until a real structured insight bridge is configured.
 
 Settings are stored in macOS `UserDefaults` under the app domain `ch.moreaki.modex`. The parsed scan cache is intentionally in-memory only and is rebuilt after app restart.
+
+History samples are stored in a compact SQLite database at:
+
+```text
+~/Library/Application Support/Modex/history.sqlite
+```
+
+The history store contains derived scan/thread metrics, not raw prompt text.
 
 ## Data Sources
 

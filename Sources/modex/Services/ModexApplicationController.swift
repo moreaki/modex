@@ -8,10 +8,13 @@ final class ModexApplicationController: ObservableObject {
 
     private let settingsStore: ModexSettingsStore
     private let monitor: ModexMonitor
+    private let historyStore: ModexHistoryStore?
+    private let signalEngine = ModexSignalEngine()
     private var settings: ModexAppSettings
     private var latestSummary: ModexSummary?
     private var refreshTask: Task<Void, Never>?
     private var refreshLoopTask: Task<Void, Never>?
+    private var historyTask: Task<Void, Never>?
     private var hasStarted = false
 
     init() {
@@ -20,12 +23,14 @@ final class ModexApplicationController: ObservableObject {
         self.settingsStore = settingsStore
         self.settings = settings
         monitor = ModexMonitor(configuration: settings.monitorConfiguration)
+        historyStore = try? ModexHistoryStore(databaseURL: ModexHistoryStore.defaultDatabaseURL())
         model = ModexMenuModel(settings: settings)
     }
 
     deinit {
         refreshTask?.cancel()
         refreshLoopTask?.cancel()
+        historyTask?.cancel()
     }
 
     func start() {
@@ -57,6 +62,11 @@ final class ModexApplicationController: ObservableObject {
         settings = newSettings.normalized()
         settingsStore.save(settings)
         model.settings = settings
+        if settings.intelligence.enabled == false || settings.intelligence.provider == .off {
+            model.intelligenceConnectionState = .off
+        } else if oldSettings.intelligence != settings.intelligence {
+            model.intelligenceConnectionState = .unknown
+        }
 
         if oldSettings.refreshIntervalSeconds != settings.refreshIntervalSeconds {
             scheduleRefreshLoop()
@@ -87,6 +97,24 @@ final class ModexApplicationController: ObservableObject {
             }
             await monitor.flushCache()
             refresh()
+        }
+    }
+
+    func testIntelligenceConnection() {
+        guard settings.intelligence.enabled,
+              settings.intelligence.provider != .off
+        else {
+            model.intelligenceConnectionState = .off
+            return
+        }
+
+        model.intelligenceConnectionState = .testing
+        let provider = settings.intelligence.provider
+        Task.detached(priority: .utility) { [weak self] in
+            let result = Self.runIntelligenceConnectionTest(provider: provider)
+            await MainActor.run {
+                self?.model.intelligenceConnectionState = result
+            }
         }
     }
 
@@ -125,6 +153,12 @@ final class ModexApplicationController: ObservableObject {
             latestSummary = summary
             model.readFailureMessage = nil
             model.summary = summary
+            model.insights = signalEngine.insights(
+                for: summary,
+                history: model.history,
+                thresholds: settings.signalThresholds
+            )
+            updateHistory(for: summary)
         case .failure(let message):
             model.readFailureMessage = message
             if latestSummary == nil {
@@ -135,5 +169,73 @@ final class ModexApplicationController: ObservableObject {
 
     private static func nanoseconds(for interval: TimeInterval) -> UInt64 {
         UInt64(max(1, interval) * 1_000_000_000)
+    }
+
+    nonisolated private static func runIntelligenceConnectionTest(
+        provider: ModexIntelligenceProvider
+    ) -> ModexIntelligenceConnectionState {
+        switch provider {
+        case .off:
+            return .off
+        case .localCodex:
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["codex", "--version"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            do {
+                try process.run()
+                process.waitUntilExit()
+                if process.terminationStatus == 0 {
+                    return .limited("Codex CLI found, but no structured insight bridge is configured yet.")
+                }
+                return .failed("Codex CLI test failed.")
+            } catch {
+                return .failed("Codex CLI was not found on the app launch PATH.")
+            }
+        }
+    }
+
+    private func updateHistory(for summary: ModexSummary) {
+        historyTask?.cancel()
+        guard let historyStore else {
+            return
+        }
+
+        let thresholds = settings.signalThresholds
+        historyTask = Task.detached(priority: .utility) { [historyStore] in
+            do {
+                try historyStore.record(summary: summary)
+                let history = try historyStore.snapshot()
+                let insights = ModexSignalEngine().insights(
+                    for: summary,
+                    history: history,
+                    thresholds: thresholds
+                )
+                await MainActor.run {
+                    self.model.history = history
+                    self.model.insights = insights
+                }
+            } catch {
+                await MainActor.run {
+                    self.model.insights = self.signalEngine.insights(
+                        for: summary,
+                        history: self.model.history,
+                        thresholds: thresholds
+                    )
+                }
+            }
+        }
+    }
+}
+
+private extension ModexAppSettings {
+    var signalThresholds: ModexSignalThresholds {
+        ModexSignalThresholds(
+            yellowPercent: contextThresholds.yellowPercent,
+            orangePercent: contextThresholds.orangePercent,
+            redPercent: contextThresholds.redPercent
+        )
     }
 }

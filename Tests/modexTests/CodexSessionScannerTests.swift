@@ -424,10 +424,81 @@ import Testing
     #expect(report.contains("latest context usage: 10.0%"))
 }
 
+@Test func historyStorePersistsScanAndThreadSamples() throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("history.jsonl")
+    try writeInsightSession(to: fileURL)
+
+    let summary = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).summary()
+    let store = try ModexHistoryStore(
+        databaseURL: temporaryDirectory.appendingPathComponent("history.sqlite")
+    )
+    try store.record(summary: summary, sampledAt: Date(timeIntervalSince1970: 1_800_000_000))
+    try store.record(summary: summary, sampledAt: Date(timeIntervalSince1970: 1_800_000_060))
+
+    let snapshot = try store.snapshot()
+    let session = try #require(summary.latestSession)
+    let samples = snapshot.samples(for: session)
+
+    #expect(snapshot.scanSamples.count == 2)
+    #expect(samples.count == 1)
+    #expect(samples.first?.sessionID == "insight")
+    #expect(samples.first?.threadName == nil)
+    #expect(samples.first?.projectTitle == "insight")
+    #expect(samples.first?.contextPercent == 92.0)
+    #expect(samples.first?.failedCommandEvents == 3)
+}
+
+@Test func signalEngineProducesDeterministicInsights() throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    try writeInsightSession(to: sessionsDirectory.appendingPathComponent("insight.jsonl"))
+    let summary = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).summary()
+    let insights = ModexSignalEngine().insights(
+        for: summary,
+        history: nil,
+        thresholds: ModexSignalThresholds(yellowPercent: 55, orangePercent: 78, redPercent: 90)
+    )
+
+    #expect(insights.contains { $0.kind == .highContext && $0.severity == .critical })
+    #expect(insights.contains { $0.kind == .failedCommands && $0.status == .agentUnavailable })
+    #expect(insights.contains { $0.kind == .slowTurn })
+    #expect(insights.contains { $0.kind == .repeatedCompactions })
+    #expect(insights.contains { $0.kind == .highCacheReuse })
+}
+
 private func writeSession(id: String, to fileURL: URL) throws {
     let jsonl = """
     {"timestamp":"2026-06-05T09:00:00.000Z","type":"session_meta","payload":{"id":"\(id)","cwd":"/tmp/\(id)"}}
     {"timestamp":"2026-06-05T09:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":20,"reasoning_output_tokens":0,"total_tokens":120},"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":20,"reasoning_output_tokens":0,"total_tokens":120},"model_context_window":1000}}}
+    """
+    try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+}
+
+private func writeInsightSession(to fileURL: URL) throws {
+    let jsonl = """
+    {"timestamp":"2026-06-05T09:00:00.000Z","type":"session_meta","payload":{"id":"insight","cwd":"/tmp/insight"}}
+    {"timestamp":"2026-06-05T09:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":520,"cached_input_tokens":400,"output_tokens":30,"reasoning_output_tokens":10,"total_tokens":560},"total_token_usage":{"input_tokens":520,"cached_input_tokens":400,"output_tokens":30,"reasoning_output_tokens":10,"total_tokens":560},"model_context_window":1000}}}
+    {"timestamp":"2026-06-05T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":920,"cached_input_tokens":820,"output_tokens":40000,"reasoning_output_tokens":10000,"total_tokens":100000},"total_token_usage":{"input_tokens":1000000,"cached_input_tokens":820000,"output_tokens":120000,"reasoning_output_tokens":40000,"total_tokens":1160000},"model_context_window":1000}}}
+    {"timestamp":"2026-06-05T09:03:00.000Z","type":"event_msg","payload":{"type":"task_complete","duration_ms":720000,"time_to_first_token_ms":2400}}
+    {"timestamp":"2026-06-05T09:04:00.000Z","type":"event_msg","payload":{"type":"exec_command_end","exit_code":1,"command":["/bin/false"]}}
+    {"timestamp":"2026-06-05T09:05:00.000Z","type":"event_msg","payload":{"type":"exec_command_end","exit_code":2,"command":["/bin/false"]}}
+    {"timestamp":"2026-06-05T09:06:00.000Z","type":"event_msg","payload":{"type":"exec_command_end","exit_code":127,"command":["missing-tool"]}}
+    {"timestamp":"2026-06-05T09:07:00.000Z","type":"event_msg","payload":{"type":"post_compact"}}
+    {"timestamp":"2026-06-05T09:08:00.000Z","type":"event_msg","payload":{"type":"pre_compact"}}
     """
     try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
 }

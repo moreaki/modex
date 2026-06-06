@@ -12,6 +12,7 @@ struct ModexDesktopApplication: App {
                 onRefresh: controller.refresh,
                 onOpenCodexFolder: controller.openCodexFolder,
                 onFlushScanCache: controller.flushScanCache,
+                onTestIntelligenceConnection: controller.testIntelligenceConnection,
                 onSettingsChange: controller.apply,
                 onQuit: controller.quit
             )

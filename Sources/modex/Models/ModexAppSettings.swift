@@ -102,6 +102,48 @@ enum ModexLanguage: String, CaseIterable, Identifiable {
     }
 }
 
+enum ModexIntelligenceProvider: String, CaseIterable, Identifiable {
+    case off
+    case localCodex
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .off:
+            return ModexStrings.text("config.intelligenceProviderOff")
+        case .localCodex:
+            return ModexStrings.text("config.intelligenceProviderLocalCodex")
+        }
+    }
+}
+
+struct ModexIntelligenceSettings: Equatable {
+    var enabled: Bool
+    var provider: ModexIntelligenceProvider
+
+    static let `default` = ModexIntelligenceSettings(
+        enabled: false,
+        provider: .off
+    )
+
+    func normalized() -> ModexIntelligenceSettings {
+        ModexIntelligenceSettings(
+            enabled: enabled,
+            provider: enabled ? provider : .off
+        )
+    }
+}
+
+enum ModexIntelligenceConnectionState: Equatable {
+    case off
+    case unknown
+    case testing
+    case connected(Date)
+    case limited(String)
+    case failed(String)
+}
+
 struct ModexParserTuningSettings: Equatable {
     var maximumConcurrentParses: Int
     var chunkSizeKB: Int
@@ -164,6 +206,7 @@ struct ModexAppSettings: Equatable {
     var contextThresholds: ModexContextThresholds
     var colorTheme: ModexColorTheme
     var language: ModexLanguage
+    var intelligence: ModexIntelligenceSettings
     var sessionDetailHoverDelayMilliseconds: Int
     var parserTuning: ModexParserTuningSettings
 
@@ -175,6 +218,7 @@ struct ModexAppSettings: Equatable {
         contextThresholds: .default,
         colorTheme: .system,
         language: .system,
+        intelligence: .default,
         sessionDetailHoverDelayMilliseconds: 500,
         parserTuning: .default
     )
@@ -199,6 +243,7 @@ struct ModexAppSettings: Equatable {
             contextThresholds: contextThresholds.normalized(),
             colorTheme: colorTheme,
             language: language,
+            intelligence: intelligence.normalized(),
             sessionDetailHoverDelayMilliseconds: min(max(sessionDetailHoverDelayMilliseconds, 0), 1500),
             parserTuning: parserTuning.normalized()
         )
@@ -217,6 +262,8 @@ final class ModexSettingsStore {
         static let redPercent = "contextRedPercent"
         static let colorTheme = "colorTheme"
         static let language = ModexStrings.languagePreferenceDefaultsKey
+        static let intelligenceEnabled = "intelligenceEnabled"
+        static let intelligenceProvider = "intelligenceProvider"
         static let sessionDetailHoverDelayMilliseconds = "sessionDetailHoverDelayMilliseconds"
         static let maximumConcurrentParses = "maximumConcurrentParses"
         static let chunkSizeKB = "chunkSizeKB"
@@ -262,6 +309,16 @@ final class ModexSettingsStore {
             ),
             colorTheme: colorTheme(forKey: Key.colorTheme, defaultValue: defaults.colorTheme),
             language: language(forKey: Key.language, defaultValue: defaults.language),
+            intelligence: ModexIntelligenceSettings(
+                enabled: bool(
+                    forKey: Key.intelligenceEnabled,
+                    defaultValue: defaults.intelligence.enabled
+                ),
+                provider: intelligenceProvider(
+                    forKey: Key.intelligenceProvider,
+                    defaultValue: defaults.intelligence.provider
+                )
+            ),
             sessionDetailHoverDelayMilliseconds: integer(
                 forKey: Key.sessionDetailHoverDelayMilliseconds,
                 defaultValue: defaults.sessionDetailHoverDelayMilliseconds
@@ -298,6 +355,8 @@ final class ModexSettingsStore {
         defaults.set(settings.contextThresholds.redPercent, forKey: Key.redPercent)
         defaults.set(settings.colorTheme.rawValue, forKey: Key.colorTheme)
         defaults.set(settings.language.rawValue, forKey: Key.language)
+        defaults.set(settings.intelligence.enabled, forKey: Key.intelligenceEnabled)
+        defaults.set(settings.intelligence.provider.rawValue, forKey: Key.intelligenceProvider)
         defaults.set(
             settings.sessionDetailHoverDelayMilliseconds,
             forKey: Key.sessionDetailHoverDelayMilliseconds
@@ -341,5 +400,15 @@ final class ModexSettingsStore {
             return defaultValue
         }
         return ModexLanguage(rawValue: value) ?? defaultValue
+    }
+
+    private func intelligenceProvider(
+        forKey key: String,
+        defaultValue: ModexIntelligenceProvider
+    ) -> ModexIntelligenceProvider {
+        guard let value = defaults.string(forKey: key) else {
+            return defaultValue
+        }
+        return ModexIntelligenceProvider(rawValue: value) ?? defaultValue
     }
 }
