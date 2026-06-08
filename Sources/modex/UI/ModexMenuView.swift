@@ -32,7 +32,7 @@ struct ModexMenuView: View {
         .padding(.top, 24)
         .padding(.horizontal, 24)
         .padding(.bottom, 20)
-        .frame(width: 980, height: 720)
+        .frame(width: 860, height: 700)
         .background(palette.background)
         .foregroundStyle(palette.text)
         .environment(\.modexPalette, palette)

@@ -11,6 +11,8 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Keep UI and application logic separated. SwiftUI views should compose state and presentation, while parsing, scanning, caching, formatting, settings persistence, and CLI reporting live in core/services/model layers.
 - Keep the CLI path working whenever app logic changes. `swift run modex --once` should continue to use the shared core behavior where practical.
 - Prefer SwiftUI for all UI. Use AppKit only as a small, isolated bridge for macOS integration that SwiftUI cannot provide cleanly.
+- Before adding new AppKit, evaluate whether the need is true macOS shell/window plumbing rather than UI composition. Good candidates include exact menu-bar window placement, window level/Spaces behavior, focus policy, and status-item geometry. Ask before introducing a new AppKit bridge unless the user has already approved that specific bridge.
+- Keep AppKit out of SwiftUI views where practical. Put bridge code in a small service or adapter, expose an intent-focused API, and keep the SwiftUI call site minimal.
 - Preserve the source layout pattern: `App`, `Core`, `Models`, `Resources`, `Services`, and `UI`.
 - All visible strings belong in localized resources. Do not add hard-coded English UI strings in SwiftUI views, tooltips, menus, settings, or table headings.
 - Settings should persist through `UserDefaults` via the settings store, not through scattered direct calls from views.
