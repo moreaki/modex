@@ -69,11 +69,11 @@ public final class CodexSessionScanner {
         self.configuration = configuration
     }
 
-    public func scan(limit: Int = 5) throws -> [SessionSnapshot] {
-        try scanResult(limit: limit).sessions
+    public func scan(limit: Int = 5) async throws -> [SessionSnapshot] {
+        try await scanResult(limit: limit).sessions
     }
 
-    public func scanResult(limit: Int = 5, cache: CodexSessionScanCache? = nil) throws -> CodexScanResult {
+    public func scanResult(limit: Int = 5, cache: CodexSessionScanCache? = nil) async throws -> CodexScanResult {
         let startedAt = Date()
         let safeLimit = max(0, limit)
         guard safeLimit > 0 else {
@@ -105,11 +105,9 @@ public final class CodexSessionScanner {
                 .prefix(safeLimit)
         )
 
-        let results = LockedScanResults()
-        let group = DispatchGroup()
-        let semaphore = DispatchSemaphore(value: configuration.maximumConcurrentParses)
-        let queue = DispatchQueue.global(qos: .userInitiated)
         let configuration = configuration
+        var results: [IndexedParseResult] = []
+        var parseWorkItems: [IndexedSessionFileCandidate] = []
         var cacheHits = 0
         var cacheMisses = 0
         var cacheBytesSaved = 0
@@ -120,32 +118,28 @@ public final class CodexSessionScanner {
                 if let cachedResult = cache.result(for: key) {
                     cacheHits += 1
                     cacheBytesSaved += file.fileSize
-                    results.append(index: index, result: cachedResult.asCacheHit())
+                    results.append(
+                        IndexedParseResult(
+                            index: index,
+                            result: cachedResult.asCacheHit()
+                        )
+                    )
                     continue
                 }
                 cacheMisses += 1
             }
 
-            semaphore.wait()
-            group.enter()
-            queue.async {
-                defer {
-                    semaphore.signal()
-                    group.leave()
-                }
-
-                if let snapshot = try? Self.parseSnapshot(
-                    fileURL: file.url,
-                    fallbackModificationDate: file.modificationDate,
-                    configuration: configuration
-                ) {
-                    results.append(index: index, result: snapshot)
-                }
-            }
+            parseWorkItems.append(IndexedSessionFileCandidate(index: index, file: file))
         }
-        group.wait()
+        results.append(
+            contentsOf: await Self.parseConcurrently(
+                parseWorkItems,
+                maximumConcurrentParses: configuration.maximumConcurrentParses,
+                configuration: configuration
+            )
+        )
 
-        let orderedIndexedResults = results.orderedIndexedResults()
+        let orderedIndexedResults = results.sorted { $0.index < $1.index }
         let orderedResults = orderedIndexedResults.map(\.result)
         let missingThreadNameSessionIDs = Set(
             orderedResults
@@ -209,9 +203,58 @@ public final class CodexSessionScanner {
         )
     }
 
-    public func summary(limit: Int = 5, cache: CodexSessionScanCache? = nil) throws -> ModexSummary {
-        let result = try scanResult(limit: limit, cache: cache)
+    public func summary(limit: Int = 5, cache: CodexSessionScanCache? = nil) async throws -> ModexSummary {
+        let result = try await scanResult(limit: limit, cache: cache)
         return ModexSummary(sessions: result.sessions, scanMetrics: result.metrics)
+    }
+
+    private static func parseConcurrently(
+        _ workItems: [IndexedSessionFileCandidate],
+        maximumConcurrentParses: Int,
+        configuration: CodexSessionScannerConfiguration
+    ) async -> [IndexedParseResult] {
+        guard workItems.isEmpty == false else {
+            return []
+        }
+
+        let maximumConcurrentParses = max(1, maximumConcurrentParses)
+        return await withTaskGroup(of: IndexedParseResult?.self, returning: [IndexedParseResult].self) { group in
+            var nextIndex = 0
+            var activeTasks = 0
+            var parsedResults: [IndexedParseResult] = []
+
+            func enqueueAvailableWork() {
+                while activeTasks < maximumConcurrentParses, nextIndex < workItems.count {
+                    let workItem = workItems[nextIndex]
+                    nextIndex += 1
+                    activeTasks += 1
+                    group.addTask(priority: .userInitiated) {
+                        guard Task.isCancelled == false else {
+                            return nil
+                        }
+                        guard let result = try? parseSnapshot(
+                            fileURL: workItem.file.url,
+                            fallbackModificationDate: workItem.file.modificationDate,
+                            configuration: configuration
+                        ) else {
+                            return nil
+                        }
+                        return IndexedParseResult(index: workItem.index, result: result)
+                    }
+                }
+            }
+
+            enqueueAvailableWork()
+            while let result = await group.next() {
+                activeTasks -= 1
+                if let result {
+                    parsedResults.append(result)
+                }
+                enqueueAvailableWork()
+            }
+
+            return parsedResults
+        }
     }
 
     public func sessionFiles() throws -> [URL] {
@@ -337,26 +380,14 @@ fileprivate struct SessionFileCandidate: Sendable {
     let fileSize: Int
 }
 
-private final class LockedScanResults: @unchecked Sendable {
-    private let values = OSAllocatedUnfairLock(initialState: [(index: Int, result: ParseResult)]())
+private struct IndexedSessionFileCandidate: Sendable {
+    let index: Int
+    let file: SessionFileCandidate
+}
 
-    func append(index: Int, result: ParseResult) {
-        values.withLock { values in
-            values.append((index, result))
-        }
-    }
-
-    func orderedResults() -> [ParseResult] {
-        values.withLock { values in
-            values.sorted { $0.index < $1.index }.map(\.result)
-        }
-    }
-
-    func orderedIndexedResults() -> [(index: Int, result: ParseResult)] {
-        values.withLock { values in
-            values.sorted { $0.index < $1.index }
-        }
-    }
+private struct IndexedParseResult: Sendable {
+    let index: Int
+    let result: ParseResult
 }
 
 fileprivate struct ParseResult: Sendable {

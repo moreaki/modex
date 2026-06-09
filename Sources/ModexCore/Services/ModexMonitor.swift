@@ -66,7 +66,7 @@ public actor ModexMonitor {
         let scanCache = scanCache
         let task = Task.detached(priority: .userInitiated) { () -> ModexRefreshResult in
             do {
-                let summary = try CodexSessionScanner(
+                let summary = try await CodexSessionScanner(
                     codexHome: configuration.codexHome,
                     configuration: configuration.scannerConfiguration
                 )
@@ -104,8 +104,8 @@ public struct ModexOneShotCommand: Sendable {
         self.formatter = formatter
     }
 
-    public func report() throws -> String {
-        let summary = try CodexSessionScanner(
+    public func report() async throws -> String {
+        let summary = try await CodexSessionScanner(
             codexHome: configuration.codexHome,
             configuration: configuration.scannerConfiguration
         )

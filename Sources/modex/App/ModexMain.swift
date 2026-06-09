@@ -5,18 +5,18 @@ import SwiftUI
 @main
 enum ModexMain {
     @MainActor
-    static func main() {
+    static func main() async {
         if CommandLine.arguments.contains("--once") {
-            printSummary(configuration: Self.oneShotConfiguration())
+            await printSummary(configuration: Self.oneShotConfiguration())
             return
         }
 
         ModexDesktopApplication.main()
     }
 
-    private static func printSummary(configuration: ModexMonitorConfiguration) {
+    private static func printSummary(configuration: ModexMonitorConfiguration) async {
         do {
-            print(try ModexOneShotCommand(configuration: configuration).report())
+            print(try await ModexOneShotCommand(configuration: configuration).report())
         } catch {
             FileHandle.standardError.write(Data("modex: \(error)\n".utf8))
             Foundation.exit(1)

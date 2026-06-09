@@ -16,6 +16,7 @@ final class ModexApplicationController: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var refreshLoopTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
+    private var intelligenceTestTask: Task<Void, Never>?
     private var agentInsightTasks: [String: Task<Void, Never>] = [:]
     private var hasStarted = false
 
@@ -39,6 +40,7 @@ final class ModexApplicationController: ObservableObject {
         refreshTask?.cancel()
         refreshLoopTask?.cancel()
         historyTask?.cancel()
+        intelligenceTestTask?.cancel()
         for task in agentInsightTasks.values {
             task.cancel()
         }
@@ -74,9 +76,17 @@ final class ModexApplicationController: ObservableObject {
         settingsStore.save(settings)
         model.settings = settings
         if settings.intelligence.enabled == false || settings.intelligence.provider == .off {
+            intelligenceTestTask?.cancel()
+            intelligenceTestTask = nil
+            for task in agentInsightTasks.values {
+                task.cancel()
+            }
+            agentInsightTasks.removeAll()
             model.intelligenceConnectionState = .off
             model.runningAgentInsightIDs.removeAll()
         } else if oldSettings.intelligence != settings.intelligence {
+            intelligenceTestTask?.cancel()
+            intelligenceTestTask = nil
             model.intelligenceConnectionState = .unknown
         }
 
@@ -122,11 +132,14 @@ final class ModexApplicationController: ObservableObject {
 
         model.intelligenceConnectionState = .testing
         let intelligence = settings.intelligence
-        Task.detached(priority: .utility) { [weak self] in
+        intelligenceTestTask?.cancel()
+        intelligenceTestTask = Task(priority: .utility) { [weak self] in
             let result = await Self.runIntelligenceConnectionTest(settings: intelligence)
-            await MainActor.run {
-                self?.model.intelligenceConnectionState = result
+            guard Task.isCancelled == false else {
+                return
             }
+            self?.intelligenceTestTask = nil
+            self?.model.intelligenceConnectionState = result
         }
     }
 
@@ -156,6 +169,9 @@ final class ModexApplicationController: ObservableObject {
         agentInsightTasks[baseInsight.id] = Task.detached(priority: .utility) { [weak self] in
             do {
                 let result = try await Self.runAgentInsight(request: request, settings: settings)
+                guard Task.isCancelled == false else {
+                    return
+                }
                 try? historyStore?.save(agentInsight: result)
                 await MainActor.run {
                     self?.agentInsightTasks[baseInsight.id] = nil
@@ -165,6 +181,9 @@ final class ModexApplicationController: ObservableObject {
                     self?.model.intelligenceConnectionState = .connected(result.generatedAt)
                 }
             } catch {
+                guard Task.isCancelled == false else {
+                    return
+                }
                 await MainActor.run {
                     self?.agentInsightTasks[baseInsight.id] = nil
                     self?.model.runningAgentInsightIDs.remove(baseInsight.id)
@@ -307,11 +326,17 @@ final class ModexApplicationController: ObservableObject {
                     history: history,
                     thresholds: thresholds
                 )
+                guard Task.isCancelled == false else {
+                    return
+                }
                 await MainActor.run {
                     self.model.history = history
                     self.model.insights = insights
                 }
             } catch {
+                guard Task.isCancelled == false else {
+                    return
+                }
                 await MainActor.run {
                     self.model.insights = self.signalEngine.insights(
                         for: summary,

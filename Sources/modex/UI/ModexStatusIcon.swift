@@ -112,3 +112,15 @@ struct ModexStatusIcon: View {
         }
     }
 }
+
+#Preview("Status Icon") {
+    HStack(spacing: 14) {
+        ModexStatusIcon(contextUsagePercent: nil)
+        ModexStatusIcon(contextUsagePercent: 35)
+        ModexStatusIcon(contextUsagePercent: 69)
+        ModexStatusIcon(contextUsagePercent: 83)
+        ModexStatusIcon(contextUsagePercent: 94)
+    }
+    .padding(16)
+    .background(.black)
+}

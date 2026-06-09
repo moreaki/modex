@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ModexCore
 
-@Test func parsesTokenEventsAndComputesSummary() throws {
+@Test func parsesTokenEventsAndComputesSummary() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -25,7 +25,8 @@ import Testing
         to: temporaryDirectory.appendingPathComponent(".codex")
     )
 
-    let summary = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).summary()
+    let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .summary()
 
     #expect(summary.sessionsScanned == 1)
     #expect(summary.tokenEvents == 2)
@@ -74,7 +75,7 @@ import Testing
     #expect(summary.scanMetrics?.parserMode == "streaming-byte-scan")
 }
 
-@Test func parsesSessionActivityAndPerformanceMetrics() throws {
+@Test func parsesSessionActivityAndPerformanceMetrics() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -95,11 +96,9 @@ import Testing
     """
     try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
 
-    let session = try #require(
-        CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
-            .scan()
-            .first
-    )
+    let sessions = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .scan()
+    let session = try #require(sessions.first)
 
     #expect(session.completedTurns == 2)
     #expect(session.lastTurnDurationMilliseconds == 120_000)
@@ -115,7 +114,7 @@ import Testing
     #expect(session.changedFileEvents == 2)
 }
 
-@Test func scanParsesRecentFilesConcurrentlyInModificationOrder() throws {
+@Test func scanParsesRecentFilesConcurrentlyInModificationOrder() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -133,12 +132,13 @@ import Testing
     try setModificationDate(now.addingTimeInterval(-60), for: sessionsDirectory.appendingPathComponent("middle.jsonl"))
     try setModificationDate(now, for: sessionsDirectory.appendingPathComponent("new.jsonl"))
 
-    let snapshots = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).scan(limit: 2)
+    let snapshots = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .scan(limit: 2)
 
     #expect(snapshots.map(\.sessionID) == ["new", "middle"])
 }
 
-@Test func scannerDefaultsToActiveSessionsAndCanIncludeArchivedSessions() throws {
+@Test func scannerDefaultsToActiveSessionsAndCanIncludeArchivedSessions() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
@@ -159,10 +159,10 @@ import Testing
     try setModificationDate(now.addingTimeInterval(-60), for: activeFile)
     try setModificationDate(now, for: archivedFile)
 
-    let activeOnly = try CodexSessionScanner(codexHome: codexHome).scan(limit: 10)
+    let activeOnly = try await CodexSessionScanner(codexHome: codexHome).scan(limit: 10)
     #expect(activeOnly.map(\.sessionID) == ["active"])
 
-    let includingArchived = try CodexSessionScanner(
+    let includingArchived = try await CodexSessionScanner(
         codexHome: codexHome,
         configuration: CodexSessionScannerConfiguration(includeArchivedSessions: true)
     )
@@ -187,7 +187,7 @@ import Testing
     )
 }
 
-@Test func scanMetricsReflectCustomParserConfiguration() throws {
+@Test func scanMetricsReflectCustomParserConfiguration() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -207,7 +207,7 @@ import Testing
         sessionIndexMaximumLineBufferBytes: 64 * 1024
     )
 
-    let result = try CodexSessionScanner(
+    let result = try await CodexSessionScanner(
         codexHome: temporaryDirectory.appendingPathComponent(".codex"),
         configuration: configuration
     )
@@ -220,7 +220,7 @@ import Testing
     #expect(result.metrics.sessionIndexMaximumLineBufferBytes == 64 * 1024)
 }
 
-@Test func scanCacheReusesUnchangedSessionFiles() throws {
+@Test func scanCacheReusesUnchangedSessionFiles() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
@@ -237,7 +237,7 @@ import Testing
     let cache = CodexSessionScanCache()
     let scanner = CodexSessionScanner(codexHome: codexHome)
 
-    let cold = try scanner.scanResult(limit: 2, cache: cache)
+    let cold = try await scanner.scanResult(limit: 2, cache: cache)
     #expect(cold.metrics.cacheEnabled)
     #expect(cold.metrics.cacheHits == 0)
     #expect(cold.metrics.cacheMisses == 2)
@@ -246,7 +246,7 @@ import Testing
     #expect(cold.metrics.fileMetrics.allSatisfy { $0.cacheHit == false })
     #expect(cold.sessions.allSatisfy { $0.threadName != nil })
 
-    let warm = try scanner.scanResult(limit: 2, cache: cache)
+    let warm = try await scanner.scanResult(limit: 2, cache: cache)
     #expect(warm.metrics.cacheEnabled)
     #expect(warm.metrics.cacheHits == 2)
     #expect(warm.metrics.cacheMisses == 0)
@@ -265,7 +265,7 @@ import Testing
     try writeSession(id: "second", to: changedFile)
     try setModificationDate(Date().addingTimeInterval(60), for: changedFile)
 
-    let mixed = try scanner.scanResult(limit: 2, cache: cache)
+    let mixed = try await scanner.scanResult(limit: 2, cache: cache)
     #expect(mixed.metrics.cacheHits == 1)
     #expect(mixed.metrics.cacheMisses == 1)
     #expect(mixed.metrics.maximumConcurrentParses == 1)
@@ -275,7 +275,7 @@ import Testing
     )
 }
 
-@Test func parsesChunkSpanningJSONLLinesAndRecordsBufferMetrics() throws {
+@Test func parsesChunkSpanningJSONLLinesAndRecordsBufferMetrics() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -292,7 +292,8 @@ import Testing
     """
     try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
 
-    let result = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).scanResult()
+    let result = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .scanResult()
 
     #expect(result.sessions.first?.sessionID == "chunked")
     #expect(result.sessions.first?.workingDirectory == "/tmp/chunked")
@@ -300,7 +301,7 @@ import Testing
     #expect(result.metrics.fileMetrics.first?.oversizedLines == 0)
 }
 
-@Test func capsOversizedJSONLLinesAfterParsingRelevantPrefix() throws {
+@Test func capsOversizedJSONLLinesAfterParsingRelevantPrefix() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -317,7 +318,8 @@ import Testing
     """
     try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
 
-    let result = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).scanResult()
+    let result = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .scanResult()
 
     #expect(result.sessions.first?.sessionID == "oversized")
     #expect(result.sessions.first?.workingDirectory == "/tmp/oversized")
@@ -401,7 +403,7 @@ import Testing
     #expect(secondSummary.sessionsScanned == 2)
 }
 
-@Test func oneShotCommandUsesSharedReportFormatter() throws {
+@Test func oneShotCommandUsesSharedReportFormatter() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -412,7 +414,7 @@ import Testing
 
     try writeSession(id: "cli", to: sessionsDirectory.appendingPathComponent("cli.jsonl"))
 
-    let report = try ModexOneShotCommand(
+    let report = try await ModexOneShotCommand(
         configuration: ModexMonitorConfiguration(
             codexHome: temporaryDirectory.appendingPathComponent(".codex"),
             scanLimit: 1
@@ -426,7 +428,7 @@ import Testing
     #expect(report.contains("latest context usage: 10.0%"))
 }
 
-@Test func historyStorePersistsScanAndThreadSamples() throws {
+@Test func historyStorePersistsScanAndThreadSamples() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -438,7 +440,8 @@ import Testing
     let fileURL = sessionsDirectory.appendingPathComponent("history.jsonl")
     try writeInsightSession(to: fileURL)
 
-    let summary = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).summary()
+    let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .summary()
     let store = try ModexHistoryStore(
         databaseURL: temporaryDirectory.appendingPathComponent("history.sqlite")
     )
@@ -495,7 +498,7 @@ import Testing
     #expect(agentRuns.last == agentResult)
 }
 
-@Test func signalEngineProducesDeterministicInsights() throws {
+@Test func signalEngineProducesDeterministicInsights() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -505,7 +508,8 @@ import Testing
     }
 
     try writeInsightSession(to: sessionsDirectory.appendingPathComponent("insight.jsonl"))
-    let summary = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).summary()
+    let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .summary()
     let insights = ModexSignalEngine().insights(
         for: summary,
         history: nil,
@@ -519,7 +523,7 @@ import Testing
     #expect(insights.contains { $0.kind == .highCacheReuse })
 }
 
-@Test func agentEvidenceBuilderCreatesMetricsOnlyRequest() throws {
+@Test func agentEvidenceBuilderCreatesMetricsOnlyRequest() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -529,7 +533,8 @@ import Testing
     }
 
     try writeInsightSession(to: sessionsDirectory.appendingPathComponent("insight.jsonl"))
-    let summary = try CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex")).summary()
+    let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .summary()
     let insight = try #require(
         ModexSignalEngine()
             .insights(
