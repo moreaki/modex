@@ -17,6 +17,22 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - All visible strings belong in localized resources. Do not add hard-coded English UI strings in SwiftUI views, tooltips, menus, settings, or table headings.
 - Settings should persist through `UserDefaults` via the settings store, not through scattered direct calls from views.
 
+## Swift And Dependency Rules
+
+- Target Modex as a macOS Swift Package app. Keep `Package.swift` as the source of truth for supported macOS and Swift toolchain versions.
+- Use Swift 6 language mode practices: explicit isolation where useful, Sendable-aware models for cross-task data, and clear actor boundaries for UI updates.
+- Prefer async/await over callback-style APIs.
+- Use structured concurrency for bounded parallel work such as file scans; avoid unbounded task creation.
+- Use SPM dependencies only. Avoid adding dependencies unless they clearly improve correctness, performance, or maintainability.
+- Verify unfamiliar Apple or package APIs against primary documentation before introducing them.
+
+## SwiftUI Rules
+
+- Build UI in SwiftUI by default. Use AppKit only as an isolated bridge for macOS behavior SwiftUI cannot provide cleanly.
+- Use SF Symbols for standard actions and controls unless the custom Modex status gauge or product-specific drawing is required.
+- Add `#Preview` blocks for reusable visual SwiftUI components when they can be rendered with lightweight fixture data.
+- Do not enforce one type per file. Keep small private view structs near the feature they support when that improves readability.
+
 ## Performance Guard Rails
 
 - Clicking the menu-bar icon must show usable information immediately. Do not block popover presentation on a fresh scan.
