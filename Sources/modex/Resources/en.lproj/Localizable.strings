@@ -253,7 +253,7 @@
 "dashboard.commandsShort" = "%d cmd";
 "dashboard.failedShort" = "%d failed";
 "dashboard.failures" = "Failures";
-"dashboard.fastestGrowth" = "Largest context jump";
+"dashboard.largestSession" = "Largest session";
 "dashboard.filesChanged" = "Files changed";
 "dashboard.filesDetail" = "Files changed: %d";
 "dashboard.filesShort" = "%d files";
@@ -282,8 +282,6 @@
 "detail.commandsDetail" = "Shell command completions captured from session logs.";
 "detail.completedTurns" = "Completed turns";
 "detail.completedTurnsDetail" = "Completed-turn timing events across displayed threads.";
-"detail.contextGrowthDetail" = "Largest input-context increase between the latest two token-count events.";
-"detail.contextGrowthLegend" = "line: recent jumps · value: latest";
 "detail.diagnostics" = "Diagnostics";
 "detail.failures" = "Failures";
 "detail.failuresDetail" = "Commands that completed with a non-zero exit code.";
@@ -302,12 +300,15 @@
 "detail.patchesDetail" = "%d failed";
 "detail.performance" = "Performance";
 "detail.reasoningShare" = "Reasoning share";
-"detail.reasoningShareDetail" = "Reasoning output share of total output tokens.";
+"detail.reasoningShareDetail" = "Reasoning tokens as a share of all output tokens across displayed threads.";
 "detail.searchPlaceholder" = "Search threads";
 "detail.slowestTurnDetail" = "Slowest latest completed turn among displayed threads.";
 "detail.title" = "Thread Detail";
+"detail.tokenLeaderLegend" = "ranked by total tokens · % is cached input";
+"detail.tokenLeaderValue" = "%@ total · %@ cached";
 "detail.tokens" = "Tokens";
-"detail.tokensCachedDetail" = "Cached input ratio from total token usage.";
+"detail.tokensCachedDetail" = "Cached input tokens as a share of all input tokens across displayed threads.";
+"detail.totalTokensDetail" = "Total tokens reported across displayed threads.";
 "detail.toolCalls" = "Tool calls";
 "detail.toolCallsDetail" = "Tool-call-like response items captured from JSONL.";
 "detail.warnings" = "Warnings";

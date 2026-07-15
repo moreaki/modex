@@ -253,7 +253,7 @@
 "dashboard.commandsShort" = "%d cmd";
 "dashboard.failedShort" = "%d échecs";
 "dashboard.failures" = "Échecs";
-"dashboard.fastestGrowth" = "Plus grand saut de contexte";
+"dashboard.largestSession" = "Session la plus volumineuse";
 "dashboard.filesChanged" = "Fichiers modifiés";
 "dashboard.filesDetail" = "Fichiers modifiés : %d";
 "dashboard.filesShort" = "%d fichiers";
@@ -282,8 +282,6 @@
 "detail.commandsDetail" = "Fins de commandes shell capturées depuis les journaux de session.";
 "detail.completedTurns" = "Tours terminés";
 "detail.completedTurnsDetail" = "Événements de durée des tours terminés pour les fils affichés.";
-"detail.contextGrowthDetail" = "Plus forte hausse du contexte d’entrée entre les deux derniers événements de comptage.";
-"detail.contextGrowthLegend" = "courbe : sauts récents · valeur : dernier";
 "detail.diagnostics" = "Diagnostics";
 "detail.failures" = "Échecs";
 "detail.failuresDetail" = "Commandes terminées avec un code de sortie non nul.";
@@ -302,12 +300,15 @@
 "detail.patchesDetail" = "%d échecs";
 "detail.performance" = "Performance";
 "detail.reasoningShare" = "Part raisonnement";
-"detail.reasoningShareDetail" = "Part des tokens de raisonnement dans tous les tokens de sortie.";
+"detail.reasoningShareDetail" = "Part des tokens de raisonnement parmi tous les tokens de sortie des threads affichés.";
 "detail.searchPlaceholder" = "Rechercher des threads";
 "detail.slowestTurnDetail" = "Dernier tour terminé le plus lent parmi les fils affichés.";
 "detail.title" = "Détail du thread";
+"detail.tokenLeaderLegend" = "classé par total de tokens · % est la part d’entrée en cache";
+"detail.tokenLeaderValue" = "%@ au total · %@ en cache";
 "detail.tokens" = "Tokens";
-"detail.tokensCachedDetail" = "Ratio d’entrée en cache depuis l’utilisation totale des tokens.";
+"detail.tokensCachedDetail" = "Part des tokens d’entrée en cache parmi tous les tokens d’entrée des threads affichés.";
+"detail.totalTokensDetail" = "Nombre total de tokens signalés dans les threads affichés.";
 "detail.toolCalls" = "Appels d’outils";
 "detail.toolCallsDetail" = "Éléments de réponse similaires à des appels d’outils capturés depuis JSONL.";
 "detail.warnings" = "Alertes";

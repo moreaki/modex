@@ -31,7 +31,7 @@ Components:
   - reset time
   - optional recent trend when enough data exists
 - `InsightStrip`
-  - short computed signals such as highest context, fastest growth, cache ratio, failed commands, slowest turn
+  - short computed signals such as highest context, largest session, cache ratio, failed commands, slowest turn
 - `TopThreadsPanel`
   - seven most recently active threads, available as the first scan checkpoint
   - each row shows thread name, project, model, reasoning, context, token summary, cached ratio, failed command count, and update age
@@ -73,7 +73,7 @@ Components:
 Tabs:
 
 - Overview: stable per-thread table with thread, project, context, total, median, average, model, reasoning, updated
-- Tokens: context used/left, token splits, cached input ratio, growth per turn, compactions, projected turns until warning
+- Tokens: total tokens, cached-input ratio, reasoning share, compactions, and the highest-consuming threads
 - Performance: last duration, median duration, time to first token, slowest turn, tool-heavy turns, model/speed information
 - Activity: shell commands, failed commands, files changed, tool calls, browser/MCP activity, git branch and commit
 - Insights: dedicated table for deterministic signals and optional Codex-generated interpretations, with evidence, confidence, status, and timestamps
@@ -81,17 +81,13 @@ Tabs:
 
 ### Detail Tables And Sparklines
 
-Use sparklines inside detail tables where trend shape improves comparison:
+Use sparklines only where the samples form an honest, ordered time series and the displayed value names the same measure:
 
 - Overview/context: recent context percent sparkline plus current percent
-- Tokens/total: token growth sparkline
-- Tokens/median and average: recent turn-size sparklines
 - Performance/duration: turn duration and time-to-first-token sparklines
-- Activity/failures: failed command burst sparkline
-- Activity/files: changed-file activity sparkline
 - Diagnostics/scan: scan duration and cache hit-rate sparklines
 
-Sparklines should sit inside fixed-width cells and never resize the table. They are trend hints, not exact charts; exact values remain available through hover or row detail.
+Do not draw a sparkline for a ranked cumulative total, a percentage, or event-to-event deltas merely because several samples exist. For example, token leaders should show total tokens and cached-input percentage directly, while activity leaders should show failed commands, total commands, and failure rate. Sparklines should sit inside fixed-width cells and never resize the table. They are trend hints, not exact charts; exact values remain available through hover or row detail.
 
 ### Insights Table
 
@@ -144,7 +140,7 @@ Dashboard candidates:
 - active threads
 - highest context usage
 - average context usage
-- fastest context growth
+- largest session by total tokens
 - current 5h and 7d limit left
 - cache hit ratio
 - failed commands
@@ -162,7 +158,7 @@ Thread/detail candidates:
 - failed command count
 - changed file count
 - git branch and commit
-- context growth per turn
+- tokens per completed turn
 - projected turns until warning threshold
 
 Instrumentation candidates:

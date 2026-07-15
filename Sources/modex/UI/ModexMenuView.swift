@@ -498,7 +498,7 @@ struct ModexThreadDetailWindow: View {
                 sessions: filteredSessions,
                 cards: tokenCards,
                 leaders: tokenLeaders,
-                leaderLegend: ModexStrings.text("detail.contextGrowthLegend")
+                leaderLegend: ModexStrings.text("detail.tokenLeaderLegend")
             )
         case .performance:
             ThreadMetricCardsTab(
@@ -536,12 +536,42 @@ struct ModexThreadDetailWindow: View {
     }
 
     private var tokenCards: [ThreadMetricCard] {
-        [
-            ThreadMetricCard(title: ModexStrings.text("dashboard.cachedInput"), value: percentText(average(filteredSessions.compactMap(\.cachedInputPercent))), detail: ModexStrings.text("detail.tokensCachedDetail")),
-            ThreadMetricCard(title: ModexStrings.text("detail.reasoningShare"), value: percentText(average(filteredSessions.compactMap(\.reasoningOutputPercent))), detail: ModexStrings.text("detail.reasoningShareDetail")),
-            ThreadMetricCard(title: ModexStrings.text("dashboard.fastestGrowth"), value: "+\(compact(filteredSessions.map(\.latestContextGrowthTokens).max() ?? 0))", detail: ModexStrings.text("detail.contextGrowthDetail")),
+        let usage = aggregateTokenUsage
+        return [
+            ThreadMetricCard(title: ModexStrings.text("column.total.title"), value: compact(usage.totalTokens), detail: ModexStrings.text("detail.totalTokensDetail")),
+            ThreadMetricCard(title: ModexStrings.text("dashboard.cachedInput"), value: percentText(aggregateCachedInputPercent(for: usage)), detail: ModexStrings.text("detail.tokensCachedDetail")),
+            ThreadMetricCard(title: ModexStrings.text("detail.reasoningShare"), value: percentText(aggregateReasoningOutputPercent(for: usage)), detail: ModexStrings.text("detail.reasoningShareDetail")),
             ThreadMetricCard(title: ModexStrings.text("column.compact.helpTitle"), value: "\(filteredSessions.reduce(0) { $0 + $1.compactionEvents })", detail: ModexStrings.text("column.compact.body")),
         ]
+    }
+
+    private var aggregateTokenUsage: TokenUsage {
+        filteredSessions
+            .compactMap { $0.latestTokenEvent?.totalUsage }
+            .reduce(TokenUsage()) { total, usage in
+                TokenUsage(
+                    inputTokens: total.inputTokens + usage.inputTokens,
+                    cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
+                    outputTokens: total.outputTokens + usage.outputTokens,
+                    reasoningOutputTokens: total.reasoningOutputTokens + usage.reasoningOutputTokens,
+                    totalTokens: total.totalTokens + usage.totalTokens
+                )
+            }
+    }
+
+    private func aggregateCachedInputPercent(for usage: TokenUsage) -> Double? {
+        guard usage.inputTokens > 0 else {
+            return nil
+        }
+        return Double(usage.cachedInputTokens) / Double(usage.inputTokens) * 100
+    }
+
+    private func aggregateReasoningOutputPercent(for usage: TokenUsage) -> Double? {
+        let outputTokens = usage.outputTokens + usage.reasoningOutputTokens
+        guard outputTokens > 0 else {
+            return nil
+        }
+        return Double(usage.reasoningOutputTokens) / Double(outputTokens) * 100
     }
 
     private var performanceCards: [ThreadMetricCard] {
@@ -593,13 +623,16 @@ struct ModexThreadDetailWindow: View {
 
     private var tokenLeaders: [ThreadLeaderRow] {
         filteredSessions
-            .sorted { $0.latestContextGrowthTokens > $1.latestContextGrowthTokens }
+            .sorted { $0.totalTokens > $1.totalTokens }
             .prefix(8)
-            .map {
+            .map { session in
                 ThreadLeaderRow(
-                    session: $0,
-                    value: "+\(compact($0.latestContextGrowthTokens))",
-                    trendValues: contextGrowthTrendValues(for: $0)
+                    session: session,
+                    value: ModexStrings.format(
+                        "detail.tokenLeaderValue",
+                        compact(session.totalTokens),
+                        percentText(session.cachedInputPercent)
+                    )
                 )
             }
     }
@@ -1482,9 +1515,9 @@ private struct DashboardInsightStrip: View {
     private var insights: [DashboardInsight] {
         [
             DashboardInsight(
-                id: "growth",
-                title: ModexStrings.text("dashboard.fastestGrowth"),
-                value: fastestGrowth == 0 ? ModexStrings.text("overview.contextUnavailable") : "+\(compact(fastestGrowth))"
+                id: "largest-session",
+                title: ModexStrings.text("dashboard.largestSession"),
+                value: largestSessionTokens == 0 ? ModexStrings.text("overview.contextUnavailable") : compact(largestSessionTokens)
             ),
             DashboardInsight(
                 id: "slowest",
@@ -1509,8 +1542,8 @@ private struct DashboardInsightStrip: View {
         ]
     }
 
-    private var fastestGrowth: Int {
-        sessions.map(\.latestContextGrowthTokens).max() ?? 0
+    private var largestSessionTokens: Int {
+        sessions.map(\.totalTokens).max() ?? 0
     }
 
     private var slowestTurn: Int? {
@@ -4978,13 +5011,6 @@ func totalTrendValues(
         .map { Double($0.totalUsage.totalTokens) }
         .filter { $0 > 0 }
     return Array(values.suffix(limit))
-}
-
-func contextGrowthTrendValues(
-    for session: SessionSnapshot,
-    limit: Int = 14
-) -> [Double] {
-    Array(session.contextGrowthTokensByEvent.map(Double.init).suffix(limit))
 }
 
 func medianTurnTrendValues(

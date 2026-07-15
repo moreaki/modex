@@ -85,6 +85,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Keep columns stable: thread, context, total, median, average, compactions, updated, and model-related details where space allows.
 - Use fixed or predictable column widths so hover states, exact values, and animations cannot overlap neighboring values.
 - Compact values are fine in the table, but exact values should be reachable through a calm reveal.
+- Use a sparkline only when its samples are an honest, ordered time series and the adjacent value names the same measure. Show cumulative totals, rates, and ranked values directly instead of decorating them with unrelated or synthetic trends.
 - Exact-number reveals should morph from compact to exact value only. Do not show both compact and exact values side by side, and do not wrap them in a capsule unless there is a clear reason.
 - If an exact value can be wider than its column, constrain, scale, or clip it so it never shadows the next cell.
 - Agent-generated insight copy must fit table rows: short title, one compact diagnosis sentence, and one compact next step. Do not let generated prose become a paragraph.

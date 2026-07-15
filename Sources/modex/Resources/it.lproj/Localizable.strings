@@ -253,7 +253,7 @@
 "dashboard.commandsShort" = "%d cmd";
 "dashboard.failedShort" = "%d falliti";
 "dashboard.failures" = "Errori";
-"dashboard.fastestGrowth" = "Maggior salto di contesto";
+"dashboard.largestSession" = "Sessione più grande";
 "dashboard.filesChanged" = "File modificati";
 "dashboard.filesDetail" = "File modificati: %d";
 "dashboard.filesShort" = "%d file";
@@ -282,8 +282,6 @@
 "detail.commandsDetail" = "Completamenti di comandi shell catturati dai log di sessione.";
 "detail.completedTurns" = "Turni completati";
 "detail.completedTurnsDetail" = "Eventi di durata dei turni completati nei thread mostrati.";
-"detail.contextGrowthDetail" = "Maggiore aumento del contesto di input tra gli ultimi due eventi di conteggio.";
-"detail.contextGrowthLegend" = "linea: salti recenti · valore: ultimo";
 "detail.diagnostics" = "Diagnostica";
 "detail.failures" = "Errori";
 "detail.failuresDetail" = "Comandi completati con codice di uscita diverso da zero.";
@@ -302,12 +300,15 @@
 "detail.patchesDetail" = "%d fallite";
 "detail.performance" = "Prestazioni";
 "detail.reasoningShare" = "Quota reasoning";
-"detail.reasoningShareDetail" = "Quota di output reasoning sul totale dei token di output.";
+"detail.reasoningShareDetail" = "Token di reasoning come quota di tutti i token di output nei thread mostrati.";
 "detail.searchPlaceholder" = "Cerca thread";
 "detail.slowestTurnDetail" = "Ultimo turno completato più lento tra i thread mostrati.";
 "detail.title" = "Dettaglio thread";
+"detail.tokenLeaderLegend" = "ordinato per token totali · % è la quota di input in cache";
+"detail.tokenLeaderValue" = "%@ totali · %@ in cache";
 "detail.tokens" = "Token";
-"detail.tokensCachedDetail" = "Rapporto input in cache dall’uso totale dei token.";
+"detail.tokensCachedDetail" = "Token di input in cache come quota di tutti i token di input nei thread mostrati.";
+"detail.totalTokensDetail" = "Token totali registrati nei thread mostrati.";
 "detail.toolCalls" = "Chiamate tool";
 "detail.toolCallsDetail" = "Elementi di risposta simili a chiamate tool catturati da JSONL.";
 "detail.warnings" = "Avvisi";

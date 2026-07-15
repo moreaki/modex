@@ -253,7 +253,7 @@
 "dashboard.commandsShort" = "%d Bef.";
 "dashboard.failedShort" = "%d fehlgeschl.";
 "dashboard.failures" = "Fehler";
-"dashboard.fastestGrowth" = "Größter Kontextsprung";
+"dashboard.largestSession" = "Größte Sitzung";
 "dashboard.filesChanged" = "Geänderte Dateien";
 "dashboard.filesDetail" = "Geänderte Dateien: %d";
 "dashboard.filesShort" = "%d Dateien";
@@ -282,8 +282,6 @@
 "detail.commandsDetail" = "Shell-Befehlsabschlüsse aus Sitzungsprotokollen.";
 "detail.completedTurns" = "Abgeschlossene Turns";
 "detail.completedTurnsDetail" = "Abschlusszeit-Ereignisse aller angezeigten Threads.";
-"detail.contextGrowthDetail" = "Größte Eingabekontext-Zunahme zwischen den letzten beiden Token-Zählereignissen.";
-"detail.contextGrowthLegend" = "Linie: letzte Sprünge · Wert: neuester";
 "detail.diagnostics" = "Diagnose";
 "detail.failures" = "Fehler";
 "detail.failuresDetail" = "Befehle, die mit einem Exit-Code ungleich null abgeschlossen wurden.";
@@ -302,12 +300,15 @@
 "detail.patchesDetail" = "%d fehlgeschlagen";
 "detail.performance" = "Leistung";
 "detail.reasoningShare" = "Reasoning-Anteil";
-"detail.reasoningShareDetail" = "Anteil der Reasoning-Ausgabe an allen Ausgabe-Tokens.";
+"detail.reasoningShareDetail" = "Reasoning-Tokens als Anteil aller Ausgabe-Tokens der angezeigten Threads.";
 "detail.searchPlaceholder" = "Threads suchen";
 "detail.slowestTurnDetail" = "Langsamster letzter abgeschlossener Turn der angezeigten Threads.";
 "detail.title" = "Thread-Detail";
+"detail.tokenLeaderLegend" = "nach Gesamt-Tokenzahl · % ist der gecachte Eingabeanteil";
+"detail.tokenLeaderValue" = "%@ gesamt · %@ gecacht";
 "detail.tokens" = "Tokens";
-"detail.tokensCachedDetail" = "Gecachter Eingabeanteil aus der gesamten Token-Nutzung.";
+"detail.tokensCachedDetail" = "Gecachte Eingabe-Tokens als Anteil aller Eingabe-Tokens der angezeigten Threads.";
+"detail.totalTokensDetail" = "Gesamtzahl der gemeldeten Tokens in allen angezeigten Threads.";
 "detail.toolCalls" = "Tool-Aufrufe";
 "detail.toolCallsDetail" = "Tool-call-ähnliche Response-Items aus JSONL.";
 "detail.warnings" = "Warnungen";
