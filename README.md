@@ -9,7 +9,7 @@ It reads local Codex data from `~/.codex`, uses Codex's read-only state index to
 - A menu-bar heartbeat gauge with the highest context percentage among scanned active threads.
 - A Codex `/status` style overview with context left plus the rate-limit windows reported by current local logs.
 - A compact per-thread table grouped by project, using the indexed Codex thread title as the row title and the session id as secondary metadata.
-- A seven-thread recent-activity dashboard that appears first while the complete eligible thread set progressively fills the detached detail window.
+- Separate seven-thread recent-activity views for Codex Project threads and standalone Task threads, while the complete eligible thread set progressively fills the detached detail window.
 - Per-thread context usage, model, reasoning effort, service tier, source, Codex version, speed, total tokens, median/average turn tokens, compaction count, and last update age when available.
 - Current activity metrics for command outcomes, patches, MCP calls, web searches, sub-agent activity, aborted turns, and changed files.
 - Persistent history-backed trend cards and sparklines for context pressure, token growth, scan health, turn size, duration, and failure activity.
@@ -64,7 +64,9 @@ This stable, risk-oriented reading changes when the most context-heavy thread gr
 
 The account-limit bars are separate from thread context. Modex selects the newest general Codex account-limit event across all scanned sessions and ignores named model-specific limit pools. The percentage shown there is capacity left, matching Codex's Usage & billing semantics.
 
-Clicking the menu-bar item opens immediately using the latest cached result, then refreshes in the background. On a cold read, Modex prioritizes the seven newest threads and publishes each row as it becomes available before progressively adding every remaining eligible thread. The default refresh interval is 60 seconds.
+Clicking the menu-bar item opens immediately using the latest cached result, then refreshes in the background. On a cold read, Modex prioritizes the seven newest Project threads and seven newest standalone Task threads, publishing rows as they become available before progressively adding every remaining eligible thread. The default refresh interval is 60 seconds.
+
+Project versus Task classification follows Codex’s own `projectless-thread-ids` sidebar state. Modex reads that array with a bounded streaming parser and caches it by file identity; path and repository metadata are used only as a fallback when the state is unavailable.
 
 ## Configuration
 

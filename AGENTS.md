@@ -40,7 +40,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Package the normal app as an optimized release binary. Debug builds materially distort parser latency and energy measurements; use them only for deliberate debugging.
 - Refresh data asynchronously and show the last known result while a new scan runs.
 - Scan every eligible active thread by default, with archived threads controlled only by the archive toggle. Do not add an app-level file-count limit.
-- On a cold refresh, prioritize the seven newest threads, publish those rows as each becomes available, and complete that priority set before publishing coalesced updates from the remaining bounded-concurrency scan.
+- On a cold refresh, prioritize the seven newest Project threads and seven newest standalone Task threads, publish those rows as each becomes available, and complete that priority set before publishing coalesced updates from the remaining bounded-concurrency scan.
 - JSONL scanning must remain streaming and memory-conscious. Do not load large session files fully into memory.
 - Keep parser code defensive; local Codex JSONL schemas are implementation details and can change.
 - Prefer a compatible read-only Codex SQLite thread index for discovery and metadata. Locate databases by file type and identify the index by schema rather than hard-coding versioned filenames such as `state_5.sqlite`; retain filesystem and `session_index.jsonl` fallbacks for older or changed installations. Never read `first_user_message` or `preview` merely to label or rank threads.
@@ -49,6 +49,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Keep parser memory bounded per active task. Drain Foundation temporaries per chunk with `autoreleasepool`, cap cross-chunk line storage, and never retain raw file chunks in the scan cache.
 - Default to active sessions only. Archived sessions should be opt-in because they can be large and old.
 - Use a small, understandable cache keyed by file identity such as path, size, and modification time. Growing append-only logs may resume from a bounded parser checkpoint only after verifying a tail fingerprint; truncation or mutation must fall back to a full parse.
+- Read large auxiliary Codex state files with bounded memory and cache derived metadata by file identity. Do not decode a multi-megabyte global state document merely to obtain one small array.
 - Do not write unchanged exact-cache thread snapshots to history on every refresh. Persist changed thread samples and the lightweight scan sample instead.
 - Expose cache enabled/disabled, flush, exact hits, append reuse, entries, and saved bytes in instrumentation.
 - Instrument facts, not guesses: duration, bytes read, files parsed, parser mode, active/configured concurrency, chunk size, line caps, oversized lines, cache behavior, slowest files, process memory, lifetime peak memory, CPU time, wakeups, physical I/O, and context switches.
@@ -72,6 +73,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Put global/latest Codex `/status` style information above the table, not inside per-thread table columns.
 - Keep the table for per-thread/session information only. Do not replace median/average/total token columns with global status values.
 - Use the thread name as the primary row label. Use the project name for grouping. Keep the session id as secondary metadata.
+- Keep Codex Project threads and standalone Task threads as separate scopes in overview and detail surfaces. Use Codex's authoritative `projectless-thread-ids` state when available; directory and repository inference is only a fallback.
 - Do not show the last user prompt text in the main table. It is noisy and not needed for monitoring.
 - Show model, reasoning, and speed per thread when available. Do not show fields like `Summary: auto` unless they have a clear user-facing meaning.
 - Show stale update information honestly. If an update is days or weeks old, prefer relative age such as `3d ago` over a bare clock time that looks current.

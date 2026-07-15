@@ -103,8 +103,14 @@ public final class CodexSessionScanner {
             )
         }
 
+        let sidebarStateRead = CodexSidebarStateReader.read(codexHome: codexHome)
         let discovery = try sessionFileDiscovery(limit: safeLimit)
-        let files = discovery.candidates
+        let prioritized = Self.prioritizedCandidates(
+            discovery.candidates,
+            sidebarState: sidebarStateRead?.state,
+            initialCountPerScope: initialBatchSize
+        )
+        let files = prioritized.candidates
         guard files.isEmpty == false else {
             return CodexScanResult(
                 sessions: [],
@@ -159,6 +165,13 @@ public final class CodexSessionScanner {
                snapshot.threadName?.isEmpty ?? true
             {
                 snapshot.threadName = threadName
+            }
+            if let sessionID = snapshot.sessionID,
+               let sidebarState = sidebarStateRead?.state
+            {
+                snapshot.threadScope = sidebarState.scope(for: sessionID)
+            } else {
+                snapshot.threadScope = CodexThreadScope.resolve(for: snapshot)
             }
             if let threadName = snapshot.threadName, threadName.isEmpty == false {
                 metrics = metrics.withThreadName(threadName)
@@ -221,7 +234,9 @@ public final class CodexSessionScanner {
             let orderedResults = results.sorted { $0.index < $1.index }
             let fileMetrics = orderedResults.map(\.result.metrics)
             let sessions = orderedResults.map(\.result.snapshot)
-            let bytesRead = fileMetrics.reduce(threadIndex.bytesRead) { $0 + $1.bytesRead }
+            let bytesRead = fileMetrics.reduce(
+                threadIndex.bytesRead + (sidebarStateRead?.bytesRead ?? 0)
+            ) { $0 + $1.bytesRead }
             let parseWorkItemCount = cache == nil ? results.count : cacheMisses
             let activeConcurrentParses = parseWorkItemCount == 0
                 ? 0
@@ -243,6 +258,8 @@ public final class CodexSessionScanner {
                     discoveryMode: discovery.mode,
                     metadataHits: metadataHits,
                     sessionIndexBytesRead: threadIndex.bytesRead,
+                    sidebarStateBytesRead: sidebarStateRead?.bytesRead ?? 0,
+                    sidebarStateCacheHit: sidebarStateRead?.cacheHit ?? false,
                     cacheEnabled: cache != nil,
                     cacheHits: cacheHits,
                     cacheMisses: cacheMisses,
@@ -264,7 +281,7 @@ public final class CodexSessionScanner {
             )
         }
 
-        let firstCount = min(files.count, max(1, initialBatchSize))
+        let firstCount = min(files.count, prioritized.initialCount)
         let firstWorkItems = prepare(0..<firstCount)
         var lastProgressCount = 0
         if let onProgress, results.isEmpty == false {
@@ -538,6 +555,48 @@ public final class CodexSessionScanner {
         }
         let candidate = String(fileName.suffix(36))
         return UUID(uuidString: candidate) == nil ? nil : candidate
+    }
+
+    private static func prioritizedCandidates(
+        _ candidates: [SessionFileCandidate],
+        sidebarState: CodexSidebarState?,
+        initialCountPerScope: Int
+    ) -> (candidates: [SessionFileCandidate], initialCount: Int) {
+        let initialCountPerScope = max(1, initialCountPerScope)
+        guard let sidebarState else {
+            return (candidates, min(candidates.count, initialCountPerScope))
+        }
+
+        var projectCount = 0
+        var taskCount = 0
+        var initialPaths: Set<String> = []
+        initialPaths.reserveCapacity(initialCountPerScope * 2)
+
+        for candidate in candidates {
+            guard let sessionID = candidate.metadata?.sessionID ?? sessionID(from: candidate.url) else {
+                continue
+            }
+            switch sidebarState.scope(for: sessionID) {
+            case .project where projectCount < initialCountPerScope:
+                projectCount += 1
+                initialPaths.insert(candidate.url.path)
+            case .task where taskCount < initialCountPerScope:
+                taskCount += 1
+                initialPaths.insert(candidate.url.path)
+            default:
+                break
+            }
+            if projectCount == initialCountPerScope, taskCount == initialCountPerScope {
+                break
+            }
+        }
+
+        guard initialPaths.isEmpty == false else {
+            return (candidates, min(candidates.count, initialCountPerScope))
+        }
+        let initialCandidates = candidates.filter { initialPaths.contains($0.url.path) }
+        let remainingCandidates = candidates.filter { initialPaths.contains($0.url.path) == false }
+        return (initialCandidates + remainingCandidates, initialCandidates.count)
     }
 
     private func threadNamesBySessionID(matching sessionIDs: Set<String>?) -> SessionIndexResult {

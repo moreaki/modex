@@ -1,5 +1,28 @@
 import Foundation
 
+public enum CodexThreadScope: String, CaseIterable, Equatable, Hashable, Identifiable, Sendable {
+    case project
+    case task
+
+    public var id: String { rawValue }
+
+    public static func resolve(for session: SessionSnapshot) -> CodexThreadScope {
+        if let threadScope = session.threadScope {
+            return threadScope
+        }
+
+        switch CodexProjectIdentity.resolve(
+            workingDirectory: session.workingDirectory,
+            gitOriginURL: session.gitOriginURL
+        ).kind {
+        case .codexTasks, .unknown:
+            return .task
+        case .repository, .directory:
+            return .project
+        }
+    }
+}
+
 public struct CodexProjectIdentity: Equatable, Hashable, Sendable {
     public enum Kind: Equatable, Hashable, Sendable {
         case repository
@@ -13,15 +36,37 @@ public struct CodexProjectIdentity: Equatable, Hashable, Sendable {
     public let kind: Kind
 
     public static func resolve(for session: SessionSnapshot) -> CodexProjectIdentity {
-        resolve(
+        if session.threadScope == .task {
+            let taskScope = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+            return CodexProjectIdentity(
+                id: "codex-tasks:\(taskScope.path)",
+                suggestedName: "Codex",
+                kind: .codexTasks
+            )
+        }
+
+        return resolve(
             workingDirectory: session.workingDirectory,
-            gitOriginURL: session.gitOriginURL
+            gitOriginURL: session.gitOriginURL,
+            recognizeTaskLocations: session.threadScope != .project
         )
     }
 
     public static func resolve(
         workingDirectory: String?,
         gitOriginURL: String? = nil
+    ) -> CodexProjectIdentity {
+        resolve(
+            workingDirectory: workingDirectory,
+            gitOriginURL: gitOriginURL,
+            recognizeTaskLocations: true
+        )
+    }
+
+    private static func resolve(
+        workingDirectory: String?,
+        gitOriginURL: String?,
+        recognizeTaskLocations: Bool
     ) -> CodexProjectIdentity {
         if let repository = repositoryIdentity(from: gitOriginURL) {
             return CodexProjectIdentity(
@@ -36,7 +81,7 @@ public struct CodexProjectIdentity: Equatable, Hashable, Sendable {
         }
 
         let directoryURL = URL(fileURLWithPath: workingDirectory).standardizedFileURL
-        if let tasksScope = codexTasksScope(for: directoryURL) {
+        if recognizeTaskLocations, let tasksScope = codexTasksScope(for: directoryURL) {
             return CodexProjectIdentity(
                 id: "codex-tasks:\(tasksScope.path)",
                 suggestedName: "Codex",

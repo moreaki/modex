@@ -143,6 +143,7 @@ public struct SessionSnapshot: Equatable, Sendable {
     public var agentPath: String?
     public var parentThreadID: String?
     public var threadSource: String?
+    public var threadScope: CodexThreadScope?
     public var isArchived: Bool
     public var startedAt: Date?
     public var updatedAt: Date?
@@ -183,6 +184,7 @@ public struct SessionSnapshot: Equatable, Sendable {
         agentPath = nil
         parentThreadID = nil
         threadSource = nil
+        threadScope = nil
         isArchived = false
         startedAt = nil
         updatedAt = nil
@@ -457,6 +459,8 @@ public struct ScanMetrics: Equatable, Sendable {
     public let discoveryMode: String
     public let metadataHits: Int
     public let sessionIndexBytesRead: Int
+    public let sidebarStateBytesRead: Int
+    public let sidebarStateCacheHit: Bool
     public let cacheEnabled: Bool
     public let cacheHits: Int
     public let cacheMisses: Int
@@ -489,6 +493,8 @@ public struct ScanMetrics: Equatable, Sendable {
         discoveryMode: String = "filesystem",
         metadataHits: Int = 0,
         sessionIndexBytesRead: Int = 0,
+        sidebarStateBytesRead: Int = 0,
+        sidebarStateCacheHit: Bool = false,
         cacheEnabled: Bool = false,
         cacheHits: Int = 0,
         cacheMisses: Int = 0,
@@ -520,6 +526,8 @@ public struct ScanMetrics: Equatable, Sendable {
         self.discoveryMode = discoveryMode
         self.metadataHits = metadataHits
         self.sessionIndexBytesRead = sessionIndexBytesRead
+        self.sidebarStateBytesRead = sidebarStateBytesRead
+        self.sidebarStateCacheHit = sidebarStateCacheHit
         self.cacheEnabled = cacheEnabled
         self.cacheHits = cacheHits
         self.cacheMisses = cacheMisses
