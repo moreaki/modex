@@ -33,7 +33,7 @@ Components:
 - `InsightStrip`
   - short computed signals such as highest context, fastest growth, cache ratio, failed commands, slowest turn
 - `TopThreadsPanel`
-  - top five threads ranked by useful attention, not just newest
+  - seven most recently active threads, available as the first scan checkpoint
   - each row shows thread name, project, model, reasoning, context, token summary, cached ratio, failed command count, and update age
 - `DashboardActionBar`
   - refresh
@@ -44,22 +44,23 @@ Components:
 
 The dashboard should avoid a dense table. It should use small grouped panels, predictable alignment, and calm warning color.
 
-## Top Thread Ranking
+## Recent Thread Selection
 
-Rank top threads by a score that favors immediate usefulness:
+The dashboard uses recency rather than an opaque score:
 
-- high current context usage
-- recent activity
-- fast context growth
-- failed commands
-- slow or stalled recent turn
-- large token total only as a secondary factor
+- discover the complete active-thread set, plus archived threads when enabled
+- scan the seven most recently modified thread logs first
+- publish each of those rows as it becomes available, completing the seven-thread checkpoint before scheduling older threads
+- continue scanning with bounded concurrency and progressively fill the detail window
+- retain the previous complete summary until the first checkpoint is ready
 
-This prevents the dashboard from becoming a list of old large sessions.
+Risk, growth, failure, and efficiency signals remain visible in metrics and Insights without changing which recent threads appear on the dashboard.
 
 ## Detached Detail Window
 
 The detail window should be the analytical surface.
+
+It displays every eligible thread rather than a configurable file-count slice. Its observed data model updates progressively as the background scan completes.
 
 Components:
 
@@ -128,9 +129,9 @@ Per-metric insight actions can appear where interpretation would be useful, espe
 
 Prefer lightweight metadata first:
 
-- `state_5.sqlite` for thread title, cwd, archived state, git metadata, model, reasoning effort, tokens used, preview, timestamps
-- `session_index.jsonl` for thread id, thread name, updated time
-- JSONL rollout files for exact token progression, turn timing, tool calls, file changes, command exits, compactions, limits
+- the newest `state_*.sqlite` for read-only thread discovery, title, cwd, archived state, model, reasoning effort, source, agent metadata, Codex version, and timestamps
+- `session_index.jsonl` as a legacy thread-title fallback
+- JSONL rollout files for exact token progression, turn timing, command outcomes, patches, MCP calls, web searches, sub-agent activity, file changes, compactions, and limits
 - `models_cache.json` for display names, context windows, speed tiers, supported reasoning levels
 - `config.toml` for defaults and enabled capabilities
 

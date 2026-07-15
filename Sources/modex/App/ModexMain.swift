@@ -25,7 +25,7 @@ enum ModexMain {
 
     private static func oneShotConfiguration() -> ModexMonitorConfiguration {
         ModexMonitorConfiguration(
-            scanLimit: intArgument("--limit", defaultValue: ModexMonitorConfiguration.defaultScanLimit),
+            scanLimit: optionalIntArgument("--limit"),
             scannerConfiguration: CodexSessionScannerConfiguration(
                 maximumConcurrentParses: intArgument(
                     "--concurrency",
@@ -55,6 +55,17 @@ enum ModexMain {
               value > 0
         else {
             return defaultValue
+        }
+        return value
+    }
+
+    private static func optionalIntArgument(_ name: String) -> Int? {
+        guard let index = CommandLine.arguments.firstIndex(of: name),
+              CommandLine.arguments.indices.contains(index + 1),
+              let value = Int(CommandLine.arguments[index + 1]),
+              value > 0
+        else {
+            return nil
         }
         return value
     }

@@ -37,8 +37,11 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 
 - Clicking the menu-bar icon must show usable information immediately. Do not block popover presentation on a fresh scan.
 - Refresh data asynchronously and show the last known result while a new scan runs.
+- Scan every eligible active thread by default, with archived threads controlled only by the archive toggle. Do not add an app-level file-count limit.
+- On a cold refresh, prioritize the seven newest threads, publish those rows as each becomes available, and complete that priority set before publishing coalesced updates from the remaining bounded-concurrency scan.
 - JSONL scanning must remain streaming and memory-conscious. Do not load large session files fully into memory.
 - Keep parser code defensive; local Codex JSONL schemas are implementation details and can change.
+- Prefer Codex's newest read-only `state_*.sqlite` index for thread discovery and metadata, with filesystem and `session_index.jsonl` fallbacks for older or changed installations. Never read `first_user_message` or `preview` merely to label or rank threads.
 - Scan concurrently, but keep concurrency configurable and visible in instrumentation.
 - Default to active sessions only. Archived sessions should be opt-in because they can be large and old.
 - Use a small, understandable cache keyed by file identity such as path, size, and modification time. Expose cache enabled/disabled, flush, hits, misses, entries, and saved bytes in instrumentation.

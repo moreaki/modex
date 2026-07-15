@@ -151,11 +151,16 @@ private struct ModexMenuBarLabel: View {
             return nil
         }
 
-        return ModexStrings.format(
-            "app.rateLimits",
-            percentLeft(rateLimits.primary?.leftPercent),
-            percentLeft(rateLimits.secondary?.leftPercent)
-        )
+        let values = [
+            rateLimits.primary.map {
+                "\(rateLimitShortLabel($0, fallbackKey: "column.primaryLimit.title")) \(percentLeft($0.leftPercent))"
+            },
+            rateLimits.secondary.map {
+                "\(rateLimitShortLabel($0, fallbackKey: "column.secondaryLimit.title")) \(percentLeft($0.leftPercent))"
+            },
+        ]
+        .compactMap(\.self)
+        return values.joined(separator: "  ")
     }
 
     private func percentLeft(_ percent: Double?) -> String {
@@ -193,14 +198,18 @@ private struct ModexMenuBarHoverCard: View {
                         ModexStrings.text("column.context.title"),
                         contextLeftValue(summary)
                     )
-                    valueRow(
-                        ModexStrings.text("column.primaryLimit.title"),
-                        limitValue(summary.latestRateLimits?.primary)
-                    )
-                    valueRow(
-                        ModexStrings.text("column.secondaryLimit.title"),
-                        limitValue(summary.latestRateLimits?.secondary)
-                    )
+                    if let primary = summary.latestRateLimits?.primary {
+                        valueRow(
+                            rateLimitShortLabel(primary, fallbackKey: "column.primaryLimit.title"),
+                            limitValue(primary)
+                        )
+                    }
+                    if let secondary = summary.latestRateLimits?.secondary {
+                        valueRow(
+                            rateLimitShortLabel(secondary, fallbackKey: "column.secondaryLimit.title"),
+                            limitValue(secondary)
+                        )
+                    }
                     valueRow(
                         ModexStrings.text("column.median.title"),
                         summary.medianTurnTokens.formatted()
@@ -288,4 +297,15 @@ private struct ModexMenuBarHoverCard: View {
         formatter.timeStyle = .short
         return formatter
     }()
+}
+
+private func rateLimitShortLabel(_ window: CodexRateLimitWindow, fallbackKey: String) -> String {
+    switch window.windowMinutes {
+    case 300:
+        return ModexStrings.text("column.primaryLimit.title")
+    case 10_080:
+        return ModexStrings.text("column.secondaryLimit.title")
+    default:
+        return ModexStrings.text(fallbackKey)
+    }
 }

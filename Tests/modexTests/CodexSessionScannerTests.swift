@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import ModexCore
 
@@ -16,7 +17,7 @@ import Testing
     {"timestamp":"2026-06-05T09:00:00.000Z","type":"session_meta","payload":{"id":"thread-1","cwd":"/tmp/project"}}
     {"timestamp":"2026-06-05T09:00:30.000Z","type":"turn_context","payload":{"model":"gpt-5.5","reasoning_effort":"high","effort":"medium","summary":"auto","realtime_active":true}}
     {"timestamp":"2026-06-05T09:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":10,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"total_token_usage":{"input_tokens":100,"cached_input_tokens":10,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"model_context_window":1000}}}
-    {"timestamp":"2026-06-05T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":300,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":7,"total_tokens":350},"total_token_usage":{"input_tokens":400,"cached_input_tokens":30,"output_tokens":70,"reasoning_output_tokens":12,"total_tokens":470},"model_context_window":1000},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":9.0,"window_minutes":300,"resets_at":1775764988},"secondary":{"used_percent":19.0,"window_minutes":10080,"resets_at":1776209285},"credits":null,"plan_type":"pro"}}}
+    {"timestamp":"2026-06-05T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":300,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":7,"total_tokens":350},"total_token_usage":{"input_tokens":400,"cached_input_tokens":30,"output_tokens":70,"reasoning_output_tokens":12,"total_tokens":470},"model_context_window":1000},"rate_limits":{"limit_id":"codex","limit_name":"Codex","primary":{"used_percent":9.0,"window_minutes":300,"resets_at":1775764988},"secondary":{"used_percent":19.0,"window_minutes":10080,"resets_at":1776209285},"credits":null,"plan_type":"pro"}}}
     {"timestamp":"2026-06-05T09:03:00.000Z","type":"event_msg","payload":{"type":"post_compact","trigger":"auto"}}
     """
     try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
@@ -59,6 +60,8 @@ import Testing
     #expect(summary.latestSession?.latestRateLimits?.secondary?.usedPercent == 19.0)
     #expect(summary.latestSession?.latestRateLimits?.secondary?.leftPercent == 81.0)
     #expect(summary.latestSession?.latestRateLimits?.secondary?.windowMinutes == 10080)
+    #expect(summary.latestSession?.latestRateLimits?.limitID == "codex")
+    #expect(summary.latestSession?.latestRateLimits?.limitName == "Codex")
     #expect(summary.latestSession?.latestRateLimits?.planType == "pro")
     #expect(summary.contextUsagePercent == 30.0)
     #expect(summary.contextLeftPercent == 70.0)
@@ -114,6 +117,146 @@ import Testing
     #expect(session.changedFileEvents == 2)
 }
 
+@Test func parsesCurrentCodexActivityAndDeduplicatesCompactionPairs() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("current.jsonl")
+    let jsonl = """
+    {"timestamp":"2026-07-15T09:00:00.000Z","type":"session_meta","payload":{"id":"current","cwd":"/tmp/current","cli_version":"0.144.3","model_provider":"openai","source":"cli","agent_nickname":"Ada","agent_role":"reviewer","agent_path":"/root/review","parent_thread_id":"parent"}}
+    {"timestamp":"2026-07-15T09:01:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.6-sol","reasoning_effort":"xhigh","service_tier":"fast","personality":"pragmatic","collaboration_mode":{"mode":"default","settings":{}}}}}
+    {"timestamp":"2026-07-15T09:02:00.000Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-exec","name":"exec","input":"{}"}}
+    {"timestamp":"2026-07-15T09:03:00.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-exec","output":[{"type":"text","text":"Script failed\\nWall time 0.1 seconds"}]}}
+    {"timestamp":"2026-07-15T09:04:00.000Z","type":"event_msg","payload":{"type":"patch_apply_end","success":false,"changes":{"/tmp/current/A.swift":{"type":"modify"}}}}
+    {"timestamp":"2026-07-15T09:05:00.000Z","type":"event_msg","payload":{"type":"mcp_tool_call_end","duration":0.2}}
+    {"timestamp":"2026-07-15T09:06:00.000Z","type":"event_msg","payload":{"type":"web_search_end"}}
+    {"timestamp":"2026-07-15T09:07:00.000Z","type":"event_msg","payload":{"type":"sub_agent_activity","agent_thread_id":"child"}}
+    {"timestamp":"2026-07-15T09:08:00.000Z","type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}
+    {"timestamp":"2026-07-15T09:10:00.000Z","type":"compacted","payload":{"message":"compact"}}
+    {"timestamp":"2026-07-15T09:10:00.010Z","type":"event_msg","payload":{"type":"context_compacted"}}
+    {"timestamp":"2026-07-15T09:10:02.000Z","type":"event_msg","payload":{"type":"post_compact"}}
+    """
+    try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let session = try #require(
+        try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+            .scan()
+            .first
+    )
+
+    #expect(session.cliVersion == "0.144.3")
+    #expect(session.modelProvider == "openai")
+    #expect(session.source == "cli")
+    #expect(session.agentNickname == "Ada")
+    #expect(session.agentRole == "reviewer")
+    #expect(session.agentPath == "/root/review")
+    #expect(session.parentThreadID == "parent")
+    #expect(session.model == "gpt-5.6-sol")
+    #expect(session.reasoningEffort == "xhigh")
+    #expect(session.serviceTier == "fast")
+    #expect(session.personality == "pragmatic")
+    #expect(session.collaborationMode == "default")
+    #expect(session.commandEvents == 1)
+    #expect(session.failedCommandEvents == 1)
+    #expect(session.failedCommandSummaries.first?.commandName == "exec")
+    #expect(session.patchEvents == 1)
+    #expect(session.failedPatchEvents == 1)
+    #expect(session.changedFileEvents == 1)
+    #expect(session.mcpToolCallEvents == 1)
+    #expect(session.webSearchEvents == 1)
+    #expect(session.subagentActivityEvents == 1)
+    #expect(session.abortedTurnEvents == 1)
+    #expect(session.compactionEvents == 2)
+}
+
+@Test func stateDatabaseIndexesAndEnrichesRecentThreads() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
+    let sessionsDirectory = codexHome.appendingPathComponent("sessions", isDirectory: true)
+    let archivedDirectory = codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: archivedDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let activeURL = sessionsDirectory.appendingPathComponent("active.jsonl")
+    let archivedURL = archivedDirectory.appendingPathComponent("archived.jsonl")
+    try writeSession(id: "active", to: activeURL)
+    try writeSession(id: "archived", to: archivedURL)
+    try setModificationDate(Date().addingTimeInterval(-60), for: activeURL)
+    try setModificationDate(Date(), for: archivedURL)
+    try createCodexStateDatabase(
+        at: codexHome.appendingPathComponent("state_5.sqlite"),
+        rows: [
+            StateThreadFixture(
+                id: "active",
+                path: activeURL.path,
+                recencyMilliseconds: 2_000,
+                title: "Indexed active thread",
+                archived: false
+            ),
+            StateThreadFixture(
+                id: "archived",
+                path: archivedURL.path,
+                recencyMilliseconds: 3_000,
+                title: "Indexed archive",
+                archived: true
+            ),
+        ]
+    )
+
+    let activeResult = try await CodexSessionScanner(codexHome: codexHome).scanResult(limit: 10)
+    let active = try #require(activeResult.sessions.first)
+    #expect(activeResult.sessions.count == 1)
+    #expect(activeResult.metrics.discoveryMode == "codex-state-db")
+    #expect(activeResult.metrics.metadataHits == 1)
+    #expect(activeResult.metrics.sessionIndexBytesRead == 0)
+    #expect(active.threadName == "Indexed active thread")
+    #expect(active.model == "gpt-state")
+    #expect(active.reasoningEffort == "high")
+    #expect(active.source == "vscode")
+    #expect(active.cliVersion == "0.144.3")
+    #expect(active.isArchived == false)
+
+    let allResult = try await CodexSessionScanner(
+        codexHome: codexHome,
+        configuration: CodexSessionScannerConfiguration(includeArchivedSessions: true)
+    )
+        .scanResult(limit: 10)
+    #expect(allResult.sessions.map(\.sessionID) == ["archived", "active"])
+    #expect(allResult.sessions.first?.isArchived == true)
+}
+
+@Test func incompatibleStateDatabaseFallsBackToFilesystemDiscovery() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
+    let sessionsDirectory = codexHome.appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    try writeSession(id: "fallback", to: sessionsDirectory.appendingPathComponent("fallback.jsonl"))
+    var database: OpaquePointer?
+    #expect(sqlite3_open(codexHome.appendingPathComponent("state_99.sqlite").path, &database) == SQLITE_OK)
+    if let database {
+        sqlite3_close(database)
+    }
+
+    let result = try await CodexSessionScanner(codexHome: codexHome).scanResult(limit: 1)
+    #expect(result.sessions.first?.sessionID == "fallback")
+    #expect(result.metrics.discoveryMode == "filesystem")
+    #expect(result.metrics.metadataHits == 0)
+}
+
 @Test func scanParsesRecentFilesConcurrentlyInModificationOrder() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -138,6 +281,46 @@ import Testing
     #expect(snapshots.map(\.sessionID) == ["new", "middle"])
 }
 
+@Test func progressiveScanPublishesTheSevenRecentThreadsBeforeTheCompleteSet() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
+    let sessionsDirectory = codexHome.appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let now = Date()
+    for index in 0..<11 {
+        let fileURL = sessionsDirectory.appendingPathComponent("thread-\(index).jsonl")
+        try writeSession(id: "thread-\(index)", to: fileURL)
+        try setModificationDate(now.addingTimeInterval(TimeInterval(-index * 60)), for: fileURL)
+    }
+
+    let recorder = ScanProgressRecorder()
+    let result = try await CodexSessionScanner(codexHome: codexHome).scanResult(
+        initialBatchSize: 7,
+        onProgress: { progress in
+            await recorder.record(progress)
+        }
+    )
+    let progress = await recorder.results()
+
+    #expect(result.sessions.count == 11)
+    #expect(result.metrics.filesSelected == 11)
+    #expect((progress.first?.sessions.count ?? 0) > 0)
+    #expect((progress.first?.sessions.count ?? 0) <= 7)
+    #expect(progress.first?.metrics.filesSelected == 11)
+    let recentCheckpoint = progress.first { $0.sessions.count == 7 }
+    #expect(recentCheckpoint?.sessions.compactMap(\.sessionID) == (0..<7).map { "thread-\($0)" })
+    #expect(progress.first { $0.sessions.count > 7 } != nil)
+    #expect(progress.last?.sessions.count == 11)
+    #expect(zip(progress, progress.dropFirst()).allSatisfy { pair in
+        pair.0.sessions.count <= pair.1.sessions.count
+    })
+}
+
 @Test func scannerDefaultsToActiveSessionsAndCanIncludeArchivedSessions() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -159,14 +342,14 @@ import Testing
     try setModificationDate(now.addingTimeInterval(-60), for: activeFile)
     try setModificationDate(now, for: archivedFile)
 
-    let activeOnly = try await CodexSessionScanner(codexHome: codexHome).scan(limit: 10)
+    let activeOnly = try await CodexSessionScanner(codexHome: codexHome).scan()
     #expect(activeOnly.map(\.sessionID) == ["active"])
 
     let includingArchived = try await CodexSessionScanner(
         codexHome: codexHome,
         configuration: CodexSessionScannerConfiguration(includeArchivedSessions: true)
     )
-        .scan(limit: 10)
+        .scan()
     #expect(includingArchived.map(\.sessionID) == ["archived", "active"])
 }
 
@@ -560,6 +743,90 @@ import Testing
     #expect(request.session?.failedCommands.map(\.commandName) == ["false", "false", "missing-tool"])
     #expect(request.evidenceIDs.contains("signal:failedCommands"))
     #expect(request.evidenceIDs.contains("session:insight"))
+}
+
+private struct StateThreadFixture {
+    let id: String
+    let path: String
+    let recencyMilliseconds: Int64
+    let title: String
+    let archived: Bool
+}
+
+private actor ScanProgressRecorder {
+    private var recordedResults: [CodexScanResult] = []
+
+    func record(_ result: CodexScanResult) {
+        recordedResults.append(result)
+    }
+
+    func results() -> [CodexScanResult] {
+        recordedResults
+    }
+}
+
+private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFixture]) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+    defer {
+        sqlite3_close(database)
+    }
+
+    let schema = """
+    CREATE TABLE threads (
+        id TEXT PRIMARY KEY,
+        rollout_path TEXT,
+        recency_at_ms INTEGER NOT NULL,
+        title TEXT,
+        cwd TEXT,
+        model TEXT,
+        reasoning_effort TEXT,
+        source TEXT,
+        cli_version TEXT,
+        model_provider TEXT,
+        agent_nickname TEXT,
+        agent_role TEXT,
+        agent_path TEXT,
+        parent_thread_id TEXT,
+        thread_source TEXT,
+        archived INTEGER NOT NULL
+    );
+    """
+    guard sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+
+    for row in rows {
+        let sql = """
+        INSERT INTO threads VALUES (
+            '\(sqlEscaped(row.id))',
+            '\(sqlEscaped(row.path))',
+            \(row.recencyMilliseconds),
+            '\(sqlEscaped(row.title))',
+            '/tmp/indexed',
+            'gpt-state',
+            'high',
+            'vscode',
+            '0.144.3',
+            'openai',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            'user',
+            \(row.archived ? 1 : 0)
+        );
+        """
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+    }
+}
+
+private func sqlEscaped(_ value: String) -> String {
+    value.replacingOccurrences(of: "'", with: "''")
 }
 
 private func writeSession(id: String, to fileURL: URL) throws {

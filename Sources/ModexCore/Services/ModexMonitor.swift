@@ -1,18 +1,18 @@
 import Foundation
 
 public struct ModexMonitorConfiguration: Equatable, Sendable {
-    public static let defaultScanLimit = 5
+    public static let initialDisplayCount = 7
     public static let defaultRefreshIntervalSeconds: TimeInterval = 60
 
     public let codexHome: URL
-    public let scanLimit: Int
+    public let scanLimit: Int?
     public let refreshIntervalSeconds: TimeInterval
     public let scannerConfiguration: CodexSessionScannerConfiguration
     public let scanCacheEnabled: Bool
 
     public init(
         codexHome: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex"),
-        scanLimit: Int = Self.defaultScanLimit,
+        scanLimit: Int? = nil,
         refreshIntervalSeconds: TimeInterval = Self.defaultRefreshIntervalSeconds,
         scannerConfiguration: CodexSessionScannerConfiguration = .default,
         scanCacheEnabled: Bool = true
@@ -57,7 +57,9 @@ public actor ModexMonitor {
         scanCache.removeAll()
     }
 
-    public func refresh() async -> ModexRefreshResult {
+    public func refresh(
+        onProgress: (@Sendable (ModexSummary) async -> Void)? = nil
+    ) async -> ModexRefreshResult {
         if let refreshTask {
             return await refreshTask.value
         }
@@ -66,14 +68,30 @@ public actor ModexMonitor {
         let scanCache = scanCache
         let task = Task.detached(priority: .userInitiated) { () -> ModexRefreshResult in
             do {
-                let summary = try await CodexSessionScanner(
+                let scanResult = try await CodexSessionScanner(
                     codexHome: configuration.codexHome,
                     configuration: configuration.scannerConfiguration
                 )
-                    .summary(
+                    .scanResult(
                         limit: configuration.scanLimit,
-                        cache: configuration.scanCacheEnabled ? scanCache : nil
+                        initialBatchSize: ModexMonitorConfiguration.initialDisplayCount,
+                        cache: configuration.scanCacheEnabled ? scanCache : nil,
+                        onProgress: { scanResult in
+                            guard let onProgress else {
+                                return
+                            }
+                            await onProgress(
+                                ModexSummary(
+                                    sessions: scanResult.sessions,
+                                    scanMetrics: scanResult.metrics
+                                )
+                            )
+                        }
                     )
+                let summary = ModexSummary(
+                    sessions: scanResult.sessions,
+                    scanMetrics: scanResult.metrics
+                )
                 return .success(summary)
             } catch {
                 return .failure(String(describing: error))
@@ -129,6 +147,14 @@ public struct ModexSummaryReportFormatter: Sendable {
             "median turn tokens: \(summary.medianTurnTokens)",
             "average turn tokens: \(summary.averageTurnTokens)",
             "compaction events: \(summary.compactionEvents)",
+            "commands: \(summary.sessions.reduce(0) { $0 + $1.commandEvents })",
+            "failed commands: \(summary.sessions.reduce(0) { $0 + $1.failedCommandEvents })",
+            "patches: \(summary.sessions.reduce(0) { $0 + $1.patchEvents })",
+            "failed patches: \(summary.sessions.reduce(0) { $0 + $1.failedPatchEvents })",
+            "MCP calls: \(summary.sessions.reduce(0) { $0 + $1.mcpToolCallEvents })",
+            "web searches: \(summary.sessions.reduce(0) { $0 + $1.webSearchEvents })",
+            "sub-agent activity: \(summary.sessions.reduce(0) { $0 + $1.subagentActivityEvents })",
+            "aborted turns: \(summary.sessions.reduce(0) { $0 + $1.abortedTurnEvents })",
         ]
 
         if let metrics = summary.scanMetrics {
@@ -137,6 +163,9 @@ public struct ModexSummaryReportFormatter: Sendable {
                 "scan bytes read: \(formatBytes(metrics.bytesRead))",
                 "scan files parsed: \(metrics.filesParsed)/\(metrics.filesSelected)",
                 "scan parser: \(metrics.parserMode)",
+                "scan discovery: \(metrics.discoveryMode)",
+                "scan metadata: \(metrics.metadataHits)/\(metrics.filesSelected)",
+                "scan session index read: \(formatBytes(metrics.sessionIndexBytesRead))",
                 "scan concurrency: \(metrics.maximumConcurrentParses)/\(metrics.configuredMaximumConcurrentParses)",
                 "scan chunk size: \(formatBytes(metrics.chunkSizeBytes))",
                 "scan line buffer cap: \(formatBytes(metrics.maximumLineBufferBytes))",
@@ -175,11 +204,14 @@ public struct ModexSummaryReportFormatter: Sendable {
         }
 
         if let rateLimits = summary.latestRateLimits {
-            lines.append(limitLine(title: "latest 5h limit left", window: rateLimits.primary))
-            lines.append(limitLine(title: "latest 7d limit left", window: rateLimits.secondary))
+            if let primary = rateLimits.primary {
+                lines.append(limitLine(title: rateLimitTitle(primary, fallback: "latest primary limit left"), window: primary))
+            }
+            if let secondary = rateLimits.secondary {
+                lines.append(limitLine(title: rateLimitTitle(secondary, fallback: "latest secondary limit left"), window: secondary))
+            }
         } else {
-            lines.append("latest 5h limit left: unknown")
-            lines.append("latest 7d limit left: unknown")
+            lines.append("latest rate limit: unknown")
         }
 
         return lines
@@ -195,6 +227,17 @@ public struct ModexSummaryReportFormatter: Sendable {
             line += " (resets \(resetFormatter.string(from: resetsAt)))"
         }
         return line
+    }
+
+    private func rateLimitTitle(_ window: CodexRateLimitWindow, fallback: String) -> String {
+        switch window.windowMinutes {
+        case 300:
+            return "latest 5h limit left"
+        case 10_080:
+            return "latest 7d limit left"
+        default:
+            return fallback
+        }
     }
 
     private var resetFormatter: ISO8601DateFormatter {

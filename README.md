@@ -2,18 +2,20 @@
 
 Modex is a small SwiftUI macOS menu-bar monitor for local Codex token, context, and session usage.
 
-It reads local Codex JSONL data from `~/.codex`, keeps the menu quick with streaming scans and an in-memory scan cache, and shows the current context/rate-limit picture without sending data anywhere.
+It reads local Codex data from `~/.codex`, uses Codex's read-only state index to find threads, and streams their JSONL files through an in-memory scan cache. The current context/rate-limit picture stays local unless optional Codex Intelligence is explicitly enabled.
 
 ## What It Shows
 
 - A menu-bar heartbeat gauge with the latest scanned session context percentage.
-- A Codex `/status` style overview with context left plus 5h and 7d limit bars when those values are present in local logs.
-- A compact per-thread table grouped by project, using Codex `thread_name` as the row title and the session id as secondary metadata.
-- Per-thread context usage, model, reasoning effort, speed, total tokens, median/average turn tokens, compaction count, and last update age.
+- A Codex `/status` style overview with context left plus the rate-limit windows reported by current local logs.
+- A compact per-thread table grouped by project, using the indexed Codex thread title as the row title and the session id as secondary metadata.
+- A seven-thread recent-activity dashboard that appears first while the complete eligible thread set progressively fills the detached detail window.
+- Per-thread context usage, model, reasoning effort, service tier, source, Codex version, speed, total tokens, median/average turn tokens, compaction count, and last update age when available.
+- Current activity metrics for command outcomes, patches, MCP calls, web searches, sub-agent activity, aborted turns, and changed files.
 - Persistent history-backed trend cards and sparklines for context pressure, token growth, scan health, turn size, duration, and failure activity.
 - A detached detail-window Insights tab with deterministic, evidence-backed signals such as high context, failed commands, slow turns, repeated compactions, high cache reuse, slow scans, and cold cache behavior.
 - Calm hover details for full session/project/file information and exact token values.
-- Last-read instrumentation: duration, bytes read, parsed files, active/configured concurrency, parser buffers, cache hits/misses, and slowest files.
+- Last-read instrumentation: duration, bytes read, discovery source, metadata coverage, parsed files, active/configured concurrency, parser buffers, cache hits/misses, and slowest files.
 
 Codex JSONL schemas are local implementation details, so Modex treats missing or changed fields as absent data and keeps parsing defensive.
 
@@ -29,6 +31,8 @@ Print a one-shot terminal summary:
 ```bash
 swift run modex --once
 ```
+
+Without `--limit`, the one-shot command scans every active thread. Use `--include-archived` to add archived threads or `--limit` for a deliberately bounded diagnostic run.
 
 Useful one-shot options:
 
@@ -57,7 +61,7 @@ input_tokens / model_context_window * 100
 
 If context usage is unavailable, Modex falls back to a compact total-token value. The circular gauge uses the configured context thresholds, with defaults of 55%, 78%, and 90%.
 
-Clicking the menu-bar item opens immediately using the latest cached result, then refreshes in the background. The default refresh interval is 60 seconds.
+Clicking the menu-bar item opens immediately using the latest cached result, then refreshes in the background. On a cold read, Modex prioritizes the seven newest threads and publishes each row as it becomes available before progressively adding every remaining eligible thread. The default refresh interval is 60 seconds.
 
 ## Configuration
 
@@ -65,7 +69,7 @@ Configuration is available from the gear button in the menu.
 
 Defaults:
 
-- Scan limit: 5 most recently modified active session files.
+- Thread scope: all active threads.
 - Archived sessions: off.
 - Scan cache: on.
 - Refresh interval: 60 seconds.
@@ -75,7 +79,7 @@ Defaults:
 - Row-detail hover delay: 500 ms.
 - Agent insights: off.
 
-General settings cover scan limit, refresh interval, archived-session inclusion, scan cache enablement, cache flushing, and the Codex data folder. Appearance settings cover System/Black theme, language, and hover delay. Context settings tune the warning thresholds. Intelligence settings control optional Codex-assisted interpretation, local Codex executable path, timeout, test connection, and generated-insight cache flushing. Expert settings tune parser concurrency and buffer sizes.
+General settings cover refresh interval, archived-thread inclusion, scan cache enablement, cache flushing, and the Codex data folder. Appearance settings cover System/Black theme, language, and hover delay. Context settings tune the warning thresholds. Intelligence settings control optional Codex-assisted interpretation, local Codex executable path, timeout, test connection, and generated-insight cache flushing. Expert settings tune parser concurrency and buffer sizes.
 
 The Intelligence settings section controls optional Codex-assisted narrative interpretation. Modex remains deterministic and local-first by default: facts, charts, sparklines, and reason-coded insights work without sending prompt text anywhere. When enabled, the Local Codex provider uses `codex exec --ephemeral` with a strict output schema and a compact metrics bundle. The connection test turns green only after a real structured insight response is validated.
 
@@ -93,11 +97,12 @@ The history store contains derived scan/thread metrics and generated insight sum
 
 Modex scans:
 
-- `~/.codex/sessions` by default
+- the newest `~/.codex/state_*.sqlite` database as a read-only thread index when available
+- `~/.codex/sessions` for all active thread histories
 - `~/.codex/archived_sessions` only when archived sessions are enabled
-- `~/.codex/session_index.jsonl` for thread names
+- `~/.codex/session_index.jsonl` as a legacy title fallback
 
-It currently uses local fields such as token-count usage, model context window, rate limits, `turn_context` model metadata, compact events, working directory, session id, and thread name.
+Detailed metrics still come from streaming JSONL reads. Modex understands token usage, model context windows, rate limits, turn and thread settings, paired compaction records, command tool outcomes, patches, MCP and web activity, sub-agent activity, aborted turns, working directories, and session metadata. If the state database is unavailable or its schema changes, discovery falls back to the filesystem rather than failing the scan.
 
 ## Project Layout
 

@@ -32,7 +32,7 @@ struct ModexMenuView: View {
         .padding(.top, 24)
         .padding(.horizontal, 24)
         .padding(.bottom, 20)
-        .frame(width: 860, height: 700)
+        .frame(width: 860, height: 820)
         .background(palette.background)
         .foregroundStyle(palette.text)
         .environment(\.modexPalette, palette)
@@ -137,10 +137,7 @@ struct ModexMenuView: View {
             (model.summary?.sessions ?? [])
                 .enumerated()
                 .map { IndexedSession(index: $0.offset, session: $0.element) }
-                .sorted { lhs, rhs in
-                    dashboardAttentionScore(lhs.session) > dashboardAttentionScore(rhs.session)
-                }
-                .prefix(5)
+                .prefix(ModexMonitorConfiguration.initialDisplayCount)
         )
     }
 
@@ -235,6 +232,15 @@ struct ModexMenuView: View {
 
     private var statusText: String {
         if model.isRefreshing {
+            if let metrics = model.latestMetrics,
+               metrics.filesParsed < metrics.filesSelected
+            {
+                return ModexStrings.format(
+                    "overview.scanningProgress",
+                    metrics.filesParsed,
+                    metrics.filesSelected
+                )
+            }
             let lastReadStatus = model.lastReadStatus
             return lastReadStatus.isEmpty
                 ? ModexStrings.text("overview.refreshing")
@@ -514,6 +520,33 @@ struct ModexThreadDetailWindow: View {
             ThreadMetricCard(title: ModexStrings.text("dashboard.failures"), value: "\(filteredSessions.reduce(0) { $0 + $1.failedCommandEvents })", detail: ModexStrings.text("detail.failuresDetail")),
             ThreadMetricCard(title: ModexStrings.text("dashboard.filesChanged"), value: "\(filteredSessions.reduce(0) { $0 + $1.changedFileEvents })", detail: ModexStrings.text("detail.filesChangedDetail")),
             ThreadMetricCard(title: ModexStrings.text("detail.toolCalls"), value: "\(filteredSessions.reduce(0) { $0 + $1.toolCallEvents })", detail: ModexStrings.text("detail.toolCallsDetail")),
+            ThreadMetricCard(
+                title: ModexStrings.text("detail.patches"),
+                value: "\(filteredSessions.reduce(0) { $0 + $1.patchEvents })",
+                detail: ModexStrings.format(
+                    "detail.patchesDetail",
+                    filteredSessions.reduce(0) { $0 + $1.failedPatchEvents }
+                )
+            ),
+            ThreadMetricCard(
+                title: ModexStrings.text("detail.integrations"),
+                value: "\(filteredSessions.reduce(0) { $0 + $1.mcpToolCallEvents + $1.webSearchEvents })",
+                detail: ModexStrings.format(
+                    "detail.integrationsDetail",
+                    filteredSessions.reduce(0) { $0 + $1.mcpToolCallEvents },
+                    filteredSessions.reduce(0) { $0 + $1.webSearchEvents }
+                )
+            ),
+            ThreadMetricCard(
+                title: ModexStrings.text("detail.agentActivity"),
+                value: "\(filteredSessions.reduce(0) { $0 + $1.subagentActivityEvents })",
+                detail: ModexStrings.text("detail.agentActivityDetail")
+            ),
+            ThreadMetricCard(
+                title: ModexStrings.text("detail.abortedTurns"),
+                value: "\(filteredSessions.reduce(0) { $0 + $1.abortedTurnEvents })",
+                detail: ModexStrings.text("detail.abortedTurnsDetail")
+            ),
         ]
     }
 
@@ -1148,7 +1181,7 @@ private struct ThreadDiagnosticsTab: View {
                         ],
                         spacing: 12
                     ) {
-                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.duration"), value: formatDuration(metrics.durationSeconds), detail: metrics.parserMode))
+                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.duration"), value: formatDuration(metrics.durationSeconds), detail: "\(metrics.parserMode) · \(discoveryText(metrics.discoveryMode))"))
                         ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.read"), value: formatBytes(metrics.bytesRead), detail: "\(metrics.filesParsed)/\(metrics.filesSelected)"))
                         ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.cache"), value: cacheValue(metrics), detail: ModexStrings.format("detail.cacheSaved", formatBytes(metrics.cacheBytesSaved))))
                         ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.concurrency"), value: concurrencyValue(metrics), detail: ModexStrings.format("detail.chunkLine", formatBytes(metrics.chunkSizeBytes), formatBytes(metrics.maximumLineBufferBytes))))
@@ -1225,14 +1258,20 @@ private struct CodexRateLimitOverview: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            CodexRateLimitRow(
-                label: ModexStrings.text("overview.primaryLimitTitle"),
-                window: rateLimits.primary
-            )
-            CodexRateLimitRow(
-                label: ModexStrings.text("overview.secondaryLimitTitle"),
-                window: rateLimits.secondary
-            )
+            if let primary = rateLimits.primary {
+                CodexRateLimitRow(
+                    label: rateLimitRowLabel(primary, fallbackKey: "overview.primaryLimitTitle"),
+                    window: primary,
+                    detail: rateLimits.limitName ?? rateLimits.limitID
+                )
+            }
+            if let secondary = rateLimits.secondary {
+                CodexRateLimitRow(
+                    label: rateLimitRowLabel(secondary, fallbackKey: "overview.secondaryLimitTitle"),
+                    window: secondary,
+                    detail: rateLimits.limitName ?? rateLimits.limitID
+                )
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -1257,7 +1296,7 @@ private struct DashboardMetricGrid: View {
         ) {
             DashboardMetricTile(
                 symbol: "rectangle.stack",
-                title: ModexStrings.text("dashboard.activeThreads"),
+                title: ModexStrings.text("dashboard.threads"),
                 value: summary.map { "\($0.sessionsScanned)" } ?? "0",
                 detail: ModexStrings.text("dashboard.scanned")
             )
@@ -1682,12 +1721,18 @@ private struct DashboardThreadRow: View {
 
     private var subtitle: String {
         [
+            session.agentNickname,
             projectTitle(for: session),
-            modeValue(session.model),
-            modeValue(session.reasoningEffort),
-            speedText(for: session.realtimeActive),
+            session.model,
+            session.reasoningEffort,
+            session.realtimeActive.map { speedText(for: $0) },
         ]
-        .filter { $0 != ModexStrings.text("overview.contextUnavailable") }
+        .compactMap { value in
+            guard let value, value.isEmpty == false else {
+                return nil
+            }
+            return value
+        }
         .joined(separator: " · ")
     }
 
@@ -1718,6 +1763,21 @@ private struct DashboardThreadRow: View {
         }
         if let sessionID = session.sessionID {
             rows.append(ModexStrings.format("overview.sessionTooltipLabel", sessionID))
+        }
+        if let agent = session.agentNickname ?? session.agentPath, agent.isEmpty == false {
+            rows.append(ModexStrings.format("overview.agentLabel", agent))
+        }
+        if let agentRole = session.agentRole, agentRole.isEmpty == false {
+            rows.append(ModexStrings.format("overview.agentRoleLabel", agentRole))
+        }
+        if let collaborationMode = session.collaborationMode, collaborationMode.isEmpty == false {
+            rows.append(ModexStrings.format("overview.collaborationLabel", collaborationMode))
+        }
+        if let personality = session.personality, personality.isEmpty == false {
+            rows.append(ModexStrings.format("overview.personalityLabel", personality))
+        }
+        if let source = session.source, source.isEmpty == false {
+            rows.append(ModexStrings.format("overview.sourceLabel", sourceText(source)))
         }
         rows.append(ModexStrings.format("overview.modelLabel", modeValue(session.model)))
         rows.append(ModexStrings.format("overview.reasoningLabel", modeValue(session.reasoningEffort)))
@@ -1750,7 +1810,8 @@ private struct DashboardThreadRow: View {
 
 private struct CodexRateLimitRow: View {
     let label: String
-    let window: CodexRateLimitWindow?
+    let window: CodexRateLimitWindow
+    let detail: String?
     @Environment(\.modexPalette) private var palette
 
     var body: some View {
@@ -1760,7 +1821,7 @@ private struct CodexRateLimitRow: View {
                 .foregroundStyle(palette.secondaryText)
                 .frame(width: 80, alignment: .leading)
 
-            CodexRateLimitBar(percentLeft: window?.leftPercent)
+            CodexRateLimitBar(percentLeft: window.leftPercent)
                 .frame(height: 14)
 
             Text(statusText)
@@ -1770,13 +1831,10 @@ private struct CodexRateLimitRow: View {
                 .lineLimit(1)
         }
         .accessibilityLabel(Text("\(label) \(statusText)"))
+        .help(detail ?? "\(label) \(statusText)")
     }
 
     private var statusText: String {
-        guard let window else {
-            return ModexStrings.text("overview.contextUnavailable")
-        }
-
         let percent = Int(window.leftPercent.rounded())
         if let resetsAt = window.resetsAt {
             return ModexStrings.format(
@@ -2200,7 +2258,11 @@ private struct SessionRow: View {
 
     private var sessionSubtitle: String {
         if let sessionID = session.sessionID {
-            return ModexStrings.format("overview.sessionLabel", String(sessionID.prefix(8)))
+            let sessionLabel = ModexStrings.format("overview.sessionLabel", String(sessionID.prefix(8)))
+            if let agentNickname = session.agentNickname, agentNickname.isEmpty == false {
+                return "\(agentNickname) · \(sessionLabel)"
+            }
+            return sessionLabel
         }
 
         let fileName = session.fileURL.deletingPathExtension().lastPathComponent
@@ -2224,7 +2286,30 @@ private struct SessionRow: View {
         rows.append(ModexStrings.format("overview.modelLabel", modeValue(session.model)))
         rows.append(ModexStrings.format("overview.reasoningLabel", modeValue(session.reasoningEffort)))
         rows.append(ModexStrings.format("overview.speedLabel", speedText(for: session.realtimeActive)))
-        rows.append(ModexStrings.format("overview.summaryModeLabel", modeValue(session.summaryMode)))
+        if let serviceTier = session.serviceTier, serviceTier.isEmpty == false {
+            rows.append(ModexStrings.format("overview.serviceTierLabel", serviceTier))
+        }
+        if let source = session.source, source.isEmpty == false {
+            rows.append(ModexStrings.format("overview.sourceLabel", sourceText(source)))
+        }
+        if let cliVersion = session.cliVersion, cliVersion.isEmpty == false {
+            rows.append(ModexStrings.format("overview.codexVersionLabel", cliVersion))
+        }
+        if let agent = session.agentNickname ?? session.agentPath, agent.isEmpty == false {
+            rows.append(ModexStrings.format("overview.agentLabel", agent))
+        }
+        if let agentRole = session.agentRole, agentRole.isEmpty == false {
+            rows.append(ModexStrings.format("overview.agentRoleLabel", agentRole))
+        }
+        if let collaborationMode = session.collaborationMode, collaborationMode.isEmpty == false {
+            rows.append(ModexStrings.format("overview.collaborationLabel", collaborationMode))
+        }
+        if let personality = session.personality, personality.isEmpty == false {
+            rows.append(ModexStrings.format("overview.personalityLabel", personality))
+        }
+        if session.isArchived {
+            rows.append(ModexStrings.text("overview.archivedLabel"))
+        }
         rows.append(contextStatusText)
         rows.append(ModexStrings.format("overview.medianLabel", compact(session.medianTurnTokens)))
         rows.append(ModexStrings.format("overview.averageLabel", compact(session.averageTurnTokens)))
@@ -2283,7 +2368,6 @@ private struct ModeCell: View {
             ModexStrings.format("overview.modelLabel", modeValue(session.model)),
             ModexStrings.format("overview.reasoningLabel", modeValue(session.reasoningEffort)),
             ModexStrings.format("overview.speedLabel", speedText(for: session.realtimeActive)),
-            ModexStrings.format("overview.summaryModeLabel", modeValue(session.summaryMode)),
         ]
         .joined(separator: "\n")
     }
@@ -2294,6 +2378,37 @@ private func modeValue(_ value: String?) -> String {
         return ModexStrings.text("overview.contextUnavailable")
     }
     return value
+}
+
+private func sourceText(_ source: String) -> String {
+    switch source {
+    case "vscode", "appServer", "app-server":
+        return ModexStrings.text("overview.sourceDesktop")
+    case "cli", "exec":
+        return ModexStrings.text("overview.sourceCLI")
+    default:
+        if source.contains("subagent") || source.contains("thread_spawn") {
+            return ModexStrings.text("overview.sourceSubagent")
+        }
+        return source
+    }
+}
+
+private func discoveryText(_ mode: String) -> String {
+    mode == "codex-state-db"
+        ? ModexStrings.text("instrumentation.discoveryStateDB")
+        : ModexStrings.text("instrumentation.discoveryFilesystem")
+}
+
+private func rateLimitRowLabel(_ window: CodexRateLimitWindow, fallbackKey: String) -> String {
+    switch window.windowMinutes {
+    case 300:
+        return ModexStrings.text("overview.primaryLimitTitle")
+    case 10_080:
+        return ModexStrings.text("overview.secondaryLimitTitle")
+    default:
+        return ModexStrings.text(fallbackKey)
+    }
 }
 
 private func speedText(for realtimeActive: Bool?) -> String {
@@ -2634,7 +2749,7 @@ private struct InstrumentationView: View {
         guard let metrics else {
             return ModexStrings.text("instrumentation.noCompletedRead")
         }
-        return "\(metrics.parserMode)  \(metrics.filesParsed)/\(metrics.filesSelected)"
+        return "\(metrics.parserMode)  \(discoveryText(metrics.discoveryMode))  \(metrics.filesParsed)/\(metrics.filesSelected)"
     }
 
     private var emptyState: some View {
@@ -2889,6 +3004,16 @@ private struct InstrumentationView: View {
         let maxBufferedLine = metrics.fileMetrics.map(\.maximumBufferedLineBytes).max() ?? 0
         var rows = [
             InstrumentationDetail(
+                id: "discovery",
+                label: ModexStrings.text("instrumentation.discovery"),
+                value: discoveryText(metrics.discoveryMode)
+            ),
+            InstrumentationDetail(
+                id: "metadata",
+                label: ModexStrings.text("instrumentation.metadata"),
+                value: "\(metrics.metadataHits)/\(metrics.filesSelected)"
+            ),
+            InstrumentationDetail(
                 id: "parser",
                 label: ModexStrings.text("instrumentation.parser"),
                 value: metrics.parserMode
@@ -2919,6 +3044,15 @@ private struct InstrumentationView: View {
                 value: "\(oversizedLines)"
             ),
         ]
+        if metrics.sessionIndexBytesRead > 0 {
+            rows.append(
+                InstrumentationDetail(
+                    id: "index-read",
+                    label: ModexStrings.text("instrumentation.indexRead"),
+                    value: formatBytes(metrics.sessionIndexBytesRead)
+                )
+            )
+        }
         if metrics.cacheEnabled {
             rows.append(
                 InstrumentationDetail(
@@ -3047,19 +3181,6 @@ private struct ConfigurationView: View {
                 symbol: "waveform.path.ecg.rectangle",
                 tint: .blue
             ) {
-                stepperRow(
-                    icon: "doc.text.magnifyingglass",
-                    tint: .blue,
-                    title: ModexStrings.text("config.scanLimit"),
-                    detail: ModexStrings.text("config.scanLimitHelp"),
-                    value: Binding(
-                        get: { settings.scanLimit },
-                        set: { settings = updatedSettings(scanLimit: $0) }
-                    ),
-                    range: 1...100,
-                    suffix: ""
-                )
-
                 stepperRow(
                     icon: "clock.arrow.circlepath",
                     tint: .blue,
@@ -3505,7 +3626,6 @@ private struct ConfigurationView: View {
     }
 
     private func updatedSettings(
-        scanLimit: Int? = nil,
         refreshIntervalSeconds: TimeInterval? = nil,
         includeArchivedSessions: Bool? = nil,
         scanCacheEnabled: Bool? = nil,
@@ -3525,9 +3645,6 @@ private struct ConfigurationView: View {
         sessionIndexLineBufferKB: Int? = nil
     ) -> ModexAppSettings {
         var next = settings
-        if let scanLimit {
-            next.scanLimit = scanLimit
-        }
         if let refreshIntervalSeconds {
             next.refreshIntervalSeconds = refreshIntervalSeconds
         }
@@ -4334,32 +4451,6 @@ func failedCommandTrendValues(
         return Array(values.suffix(limit))
     }
     return session.failedCommandEvents > 0 ? [0, Double(session.failedCommandEvents)] : []
-}
-
-func dashboardAttentionScore(_ session: SessionSnapshot) -> Double {
-    var score = 0.0
-    score += (session.contextUsagePercent ?? 0) * 2.4
-    score += min(Double(session.latestContextGrowthTokens) / 1_000, 60)
-    score += Double(session.failedCommandEvents) * 26
-    score += Double(session.changedFileEvents) * 2
-    score += min(Double(session.totalTokens) / 1_000_000, 30)
-
-    if let lastTurnDuration = session.lastTurnDurationMilliseconds {
-        score += min(Double(lastTurnDuration) / 10_000, 24)
-    }
-
-    if let updatedAt = session.updatedAt {
-        let age = max(0, Date().timeIntervalSince(updatedAt))
-        if age < 60 * 60 {
-            score += 34
-        } else if age < 24 * 60 * 60 {
-            score += 20
-        } else if age < 7 * 24 * 60 * 60 {
-            score += 8
-        }
-    }
-
-    return score
 }
 
 private func groupedSessions(_ sessions: [SessionSnapshot]) -> [SessionGroup] {

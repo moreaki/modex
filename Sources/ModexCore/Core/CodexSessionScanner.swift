@@ -69,14 +69,19 @@ public final class CodexSessionScanner {
         self.configuration = configuration
     }
 
-    public func scan(limit: Int = 5) async throws -> [SessionSnapshot] {
+    public func scan(limit: Int? = nil) async throws -> [SessionSnapshot] {
         try await scanResult(limit: limit).sessions
     }
 
-    public func scanResult(limit: Int = 5, cache: CodexSessionScanCache? = nil) async throws -> CodexScanResult {
+    public func scanResult(
+        limit: Int? = nil,
+        initialBatchSize: Int = 7,
+        cache: CodexSessionScanCache? = nil,
+        onProgress: (@Sendable (CodexScanResult) async -> Void)? = nil
+    ) async throws -> CodexScanResult {
         let startedAt = Date()
-        let safeLimit = max(0, limit)
-        guard safeLimit > 0 else {
+        let safeLimit = limit.map { max(0, $0) }
+        if safeLimit == 0 {
             return CodexScanResult(
                 sessions: [],
                 metrics: ScanMetrics(
@@ -97,113 +102,201 @@ public final class CodexSessionScanner {
             )
         }
 
-        let files = Array(
-            try sessionFileCandidates()
-                .sorted { lhs, rhs in
-                    lhs.modificationDate > rhs.modificationDate
-                }
-                .prefix(safeLimit)
-        )
+        let discovery = try sessionFileDiscovery(limit: safeLimit)
+        let files = discovery.candidates
+        guard files.isEmpty == false else {
+            return CodexScanResult(
+                sessions: [],
+                metrics: ScanMetrics(
+                    parserMode: FastCodexJSONLParser.parserMode,
+                    filesSelected: 0,
+                    filesParsed: 0,
+                    bytesRead: 0,
+                    durationSeconds: Date().timeIntervalSince(startedAt),
+                    maximumConcurrentParses: 0,
+                    configuredMaximumConcurrentParses: configuration.maximumConcurrentParses,
+                    chunkSizeBytes: configuration.chunkSizeBytes,
+                    maximumLineBufferBytes: configuration.maximumLineBufferBytes,
+                    sessionIndexMaximumLineBufferBytes: configuration.sessionIndexMaximumLineBufferBytes,
+                    discoveryMode: discovery.mode,
+                    cacheEnabled: cache != nil,
+                    cacheEntries: cache?.entryCount ?? 0,
+                    fileMetrics: []
+                )
+            )
+        }
 
         let configuration = configuration
+        let cachedResults: [Int: ParseResult]
+        if let cache {
+            cachedResults = Dictionary(
+                uniqueKeysWithValues: files.enumerated().compactMap { index, file in
+                    cache.result(for: SessionScanCacheKey(candidate: file)).map { (index, $0) }
+                }
+            )
+        } else {
+            cachedResults = [:]
+        }
+        let threadIndex = threadNames(for: files, cachedResults: cachedResults)
+        let metadataHits = files.reduce(0) { $0 + ($1.metadata == nil ? 0 : 1) }
         var results: [IndexedParseResult] = []
-        var parseWorkItems: [IndexedSessionFileCandidate] = []
         var cacheHits = 0
         var cacheMisses = 0
         var cacheBytesSaved = 0
 
-        for (index, file) in files.enumerated() {
-            if let cache {
-                let key = SessionScanCacheKey(candidate: file)
-                if let cachedResult = cache.result(for: key) {
-                    cacheHits += 1
-                    cacheBytesSaved += file.fileSize
-                    results.append(
-                        IndexedParseResult(
-                            index: index,
-                            result: cachedResult.asCacheHit()
-                        )
-                    )
-                    continue
-                }
-                cacheMisses += 1
-            }
-
-            parseWorkItems.append(IndexedSessionFileCandidate(index: index, file: file))
-        }
-        results.append(
-            contentsOf: await Self.parseConcurrently(
-                parseWorkItems,
-                maximumConcurrentParses: configuration.maximumConcurrentParses,
-                configuration: configuration
-            )
-        )
-
-        let orderedIndexedResults = results.sorted { $0.index < $1.index }
-        let orderedResults = orderedIndexedResults.map(\.result)
-        let missingThreadNameSessionIDs = Set(
-            orderedResults
-                .map(\.snapshot)
-                .filter { snapshot in
-                    snapshot.threadName?.isEmpty ?? true
-                }
-                .compactMap(\.sessionID)
-        )
-        let threadIndex = threadNamesBySessionID(
-            matching: missingThreadNameSessionIDs
-        )
-        let enrichedResults = orderedIndexedResults.map { indexedResult in
+        func enriched(_ indexedResult: IndexedParseResult) -> IndexedParseResult {
             var snapshot = indexedResult.result.snapshot
             var metrics = indexedResult.result.metrics
+            if files.indices.contains(indexedResult.index),
+               let metadata = files[indexedResult.index].metadata
+            {
+                Self.apply(metadata: metadata, to: &snapshot)
+            }
             if let sessionID = snapshot.sessionID,
                let threadName = threadIndex.threadNames[sessionID],
-               threadName.isEmpty == false
+               threadName.isEmpty == false,
+               snapshot.threadName?.isEmpty ?? true
             {
                 snapshot.threadName = threadName
+            }
+            if let threadName = snapshot.threadName, threadName.isEmpty == false {
                 metrics = metrics.withThreadName(threadName)
             }
-            return (index: indexedResult.index, snapshot: snapshot, metrics: metrics)
+            return IndexedParseResult(
+                index: indexedResult.index,
+                result: ParseResult(snapshot: snapshot, metrics: metrics)
+            )
         }
-        if let cache {
-            for result in enrichedResults where result.metrics.cacheHit == false && files.indices.contains(result.index) {
+
+        func append(_ indexedResult: IndexedParseResult) {
+            let indexedResult = enriched(indexedResult)
+            results.append(indexedResult)
+            if let cache,
+               indexedResult.result.metrics.cacheHit == false,
+               files.indices.contains(indexedResult.index)
+            {
                 cache.store(
-                    ParseResult(snapshot: result.snapshot, metrics: result.metrics),
-                    for: SessionScanCacheKey(candidate: files[result.index])
+                    indexedResult.result,
+                    for: SessionScanCacheKey(candidate: files[indexedResult.index])
                 )
             }
         }
-        let fileMetrics = enrichedResults.map(\.metrics)
-        let sessions = enrichedResults.map(\.snapshot)
-        let bytesRead = fileMetrics.reduce(threadIndex.bytesRead) { $0 + $1.bytesRead }
-        let parseWorkItemCount = cache == nil ? files.count : cacheMisses
-        let activeConcurrentParses = parseWorkItemCount == 0
-            ? 0
-            : min(configuration.maximumConcurrentParses, parseWorkItemCount)
 
-        return CodexScanResult(
-            sessions: sessions,
-            metrics: ScanMetrics(
-                parserMode: FastCodexJSONLParser.parserMode,
-                filesSelected: files.count,
-                filesParsed: sessions.count,
-                bytesRead: bytesRead,
-                durationSeconds: Date().timeIntervalSince(startedAt),
-                maximumConcurrentParses: activeConcurrentParses,
-                configuredMaximumConcurrentParses: configuration.maximumConcurrentParses,
-                chunkSizeBytes: configuration.chunkSizeBytes,
-                maximumLineBufferBytes: configuration.maximumLineBufferBytes,
-                sessionIndexMaximumLineBufferBytes: configuration.sessionIndexMaximumLineBufferBytes,
-                cacheEnabled: cache != nil,
-                cacheHits: cacheHits,
-                cacheMisses: cacheMisses,
-                cacheEntries: cache?.entryCount ?? 0,
-                cacheBytesSaved: cacheBytesSaved,
-                fileMetrics: fileMetrics
+        func prepare(_ range: Range<Int>) -> [IndexedSessionFileCandidate] {
+            var workItems: [IndexedSessionFileCandidate] = []
+            workItems.reserveCapacity(range.count)
+            for index in range {
+                let file = files[index]
+                if cache != nil {
+                    if let cachedResult = cachedResults[index] {
+                        cacheHits += 1
+                        cacheBytesSaved += file.fileSize
+                        append(
+                            IndexedParseResult(
+                                index: index,
+                                result: cachedResult.asCacheHit()
+                            )
+                        )
+                        continue
+                    }
+                    cacheMisses += 1
+                }
+                workItems.append(IndexedSessionFileCandidate(index: index, file: file))
+            }
+            return workItems
+        }
+
+        func currentResult() -> CodexScanResult {
+            let orderedResults = results.sorted { $0.index < $1.index }
+            let fileMetrics = orderedResults.map(\.result.metrics)
+            let sessions = orderedResults.map(\.result.snapshot)
+            let bytesRead = fileMetrics.reduce(threadIndex.bytesRead) { $0 + $1.bytesRead }
+            let parseWorkItemCount = cache == nil ? results.count : cacheMisses
+            let activeConcurrentParses = parseWorkItemCount == 0
+                ? 0
+                : min(configuration.maximumConcurrentParses, parseWorkItemCount)
+            return CodexScanResult(
+                sessions: sessions,
+                metrics: ScanMetrics(
+                    parserMode: FastCodexJSONLParser.parserMode,
+                    filesSelected: files.count,
+                    filesParsed: sessions.count,
+                    bytesRead: bytesRead,
+                    durationSeconds: Date().timeIntervalSince(startedAt),
+                    maximumConcurrentParses: activeConcurrentParses,
+                    configuredMaximumConcurrentParses: configuration.maximumConcurrentParses,
+                    chunkSizeBytes: configuration.chunkSizeBytes,
+                    maximumLineBufferBytes: configuration.maximumLineBufferBytes,
+                    sessionIndexMaximumLineBufferBytes: configuration.sessionIndexMaximumLineBufferBytes,
+                    discoveryMode: discovery.mode,
+                    metadataHits: metadataHits,
+                    sessionIndexBytesRead: threadIndex.bytesRead,
+                    cacheEnabled: cache != nil,
+                    cacheHits: cacheHits,
+                    cacheMisses: cacheMisses,
+                    cacheEntries: cache?.entryCount ?? 0,
+                    cacheBytesSaved: cacheBytesSaved,
+                    fileMetrics: fileMetrics
+                )
             )
-        )
+        }
+
+        let firstCount = min(files.count, max(1, initialBatchSize))
+        let firstWorkItems = prepare(0..<firstCount)
+        var lastProgressCount = 0
+        if let onProgress, results.isEmpty == false {
+            lastProgressCount = results.count
+            await onProgress(currentResult())
+        }
+        _ = await Self.parseConcurrently(
+            firstWorkItems,
+            maximumConcurrentParses: configuration.maximumConcurrentParses,
+            configuration: configuration
+        ) { result in
+            append(result)
+            guard let onProgress else {
+                return
+            }
+            lastProgressCount = results.count
+            await onProgress(currentResult())
+        }
+
+        if let onProgress, lastProgressCount == 0 {
+            lastProgressCount = results.count
+            await onProgress(currentResult())
+        }
+
+        let remainingWorkItems = prepare(firstCount..<files.count)
+        if let onProgress, results.count > lastProgressCount {
+            lastProgressCount = results.count
+            await onProgress(currentResult())
+        }
+
+        let progressStride = max(8, configuration.maximumConcurrentParses * 4)
+        var completedSinceProgress = 0
+        _ = await Self.parseConcurrently(
+            remainingWorkItems,
+            maximumConcurrentParses: configuration.maximumConcurrentParses,
+            configuration: configuration
+        ) { result in
+            append(result)
+            completedSinceProgress += 1
+            guard let onProgress, completedSinceProgress >= progressStride else {
+                return
+            }
+            completedSinceProgress = 0
+            lastProgressCount = results.count
+            await onProgress(currentResult())
+        }
+
+        let finalResult = currentResult()
+        if let onProgress, finalResult.sessions.count != lastProgressCount {
+            await onProgress(finalResult)
+        }
+        return finalResult
     }
 
-    public func summary(limit: Int = 5, cache: CodexSessionScanCache? = nil) async throws -> ModexSummary {
+    public func summary(limit: Int? = nil, cache: CodexSessionScanCache? = nil) async throws -> ModexSummary {
         let result = try await scanResult(limit: limit, cache: cache)
         return ModexSummary(sessions: result.sessions, scanMetrics: result.metrics)
     }
@@ -211,7 +304,8 @@ public final class CodexSessionScanner {
     private static func parseConcurrently(
         _ workItems: [IndexedSessionFileCandidate],
         maximumConcurrentParses: Int,
-        configuration: CodexSessionScannerConfiguration
+        configuration: CodexSessionScannerConfiguration,
+        onResult: ((IndexedParseResult) async -> Void)? = nil
     ) async -> [IndexedParseResult] {
         guard workItems.isEmpty == false else {
             return []
@@ -248,7 +342,10 @@ public final class CodexSessionScanner {
             while let result = await group.next() {
                 activeTasks -= 1
                 if let result {
-                    parsedResults.append(result)
+                    if onResult == nil {
+                        parsedResults.append(result)
+                    }
+                    await onResult?(result)
                 }
                 enqueueAvailableWork()
             }
@@ -258,7 +355,7 @@ public final class CodexSessionScanner {
     }
 
     public func sessionFiles() throws -> [URL] {
-        try sessionFileCandidates().map(\.url)
+        try filesystemSessionFileCandidates().map(\.url)
     }
 
     public func parse(fileURL: URL) throws -> SessionSnapshot {
@@ -269,7 +366,44 @@ public final class CodexSessionScanner {
         ).snapshot
     }
 
-    private func sessionFileCandidates() throws -> [SessionFileCandidate] {
+    private func sessionFileDiscovery(limit: Int?) throws -> SessionFileDiscovery {
+        if let index = CodexThreadIndex.recentThreads(
+            codexHome: codexHome,
+            limit: limit,
+            includeArchived: configuration.includeArchivedSessions
+        ) {
+            let candidates = index.threads.compactMap { metadata -> SessionFileCandidate? in
+                let values = try? metadata.fileURL.resourceValues(
+                    forKeys: [.contentModificationDateKey, .fileSizeKey]
+                )
+                guard let fileSize = values?.fileSize else {
+                    return nil
+                }
+                return SessionFileCandidate(
+                    url: metadata.fileURL,
+                    modificationDate: values?.contentModificationDate ?? metadata.recencyDate,
+                    fileSize: max(0, fileSize),
+                    metadata: metadata
+                )
+            }
+            let sortedCandidates = candidates.sorted { $0.modificationDate > $1.modificationDate }
+            return SessionFileDiscovery(
+                candidates: limit.map { Array(sortedCandidates.prefix($0)) } ?? sortedCandidates,
+                mode: CodexThreadIndex.discoveryMode
+            )
+        }
+
+        let candidates = try filesystemSessionFileCandidates()
+            .sorted { lhs, rhs in
+                lhs.modificationDate > rhs.modificationDate
+            }
+        return SessionFileDiscovery(
+            candidates: limit.map { Array(candidates.prefix($0)) } ?? candidates,
+            mode: "filesystem"
+        )
+    }
+
+    private func filesystemSessionFileCandidates() throws -> [SessionFileCandidate] {
         var candidates: [SessionFileCandidate] = []
         let directoryNames = configuration.includeArchivedSessions
             ? ["sessions", "archived_sessions"]
@@ -291,12 +425,31 @@ public final class CodexSessionScanner {
                     SessionFileCandidate(
                         url: url,
                         modificationDate: modificationDate,
-                        fileSize: max(0, fileSize)
+                        fileSize: max(0, fileSize),
+                        metadata: nil
                     )
                 )
             }
         }
         return candidates
+    }
+
+    private static func apply(metadata: CodexThreadMetadata, to snapshot: inout SessionSnapshot) {
+        snapshot.sessionID = snapshot.sessionID ?? metadata.sessionID
+        snapshot.threadName = metadata.threadName ?? snapshot.threadName
+        snapshot.workingDirectory = snapshot.workingDirectory ?? metadata.workingDirectory
+        snapshot.model = snapshot.model ?? metadata.model
+        snapshot.reasoningEffort = snapshot.reasoningEffort ?? metadata.reasoningEffort
+        snapshot.source = metadata.source ?? snapshot.source
+        snapshot.cliVersion = metadata.cliVersion ?? snapshot.cliVersion
+        snapshot.modelProvider = metadata.modelProvider ?? snapshot.modelProvider
+        snapshot.agentNickname = metadata.agentNickname ?? snapshot.agentNickname
+        snapshot.agentRole = metadata.agentRole ?? snapshot.agentRole
+        snapshot.agentPath = metadata.agentPath ?? snapshot.agentPath
+        snapshot.parentThreadID = metadata.parentThreadID ?? snapshot.parentThreadID
+        snapshot.threadSource = metadata.threadSource ?? snapshot.threadSource
+        snapshot.isArchived = metadata.archived
+        snapshot.updatedAt = max(snapshot.updatedAt ?? .distantPast, metadata.recencyDate)
     }
 
     private static func parseSnapshot(
@@ -316,8 +469,41 @@ public final class CodexSessionScanner {
         (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
     }
 
-    private func threadNamesBySessionID(matching sessionIDs: Set<String>) -> SessionIndexResult {
-        guard sessionIDs.isEmpty == false else {
+    private func threadNames(
+        for files: [SessionFileCandidate],
+        cachedResults: [Int: ParseResult]
+    ) -> SessionIndexResult {
+        var requiresCompleteIndex = false
+        var missingMetadataSessionIDs: Set<String> = []
+        for (index, file) in files.enumerated() {
+            if file.metadata?.threadName?.isEmpty == false
+                || cachedResults[index]?.snapshot.threadName?.isEmpty == false
+            {
+                continue
+            }
+            if let sessionID = file.metadata?.sessionID ?? Self.sessionID(from: file.url) {
+                missingMetadataSessionIDs.insert(sessionID)
+            } else {
+                requiresCompleteIndex = true
+            }
+        }
+        if requiresCompleteIndex {
+            return threadNamesBySessionID(matching: nil)
+        }
+        return threadNamesBySessionID(matching: missingMetadataSessionIDs)
+    }
+
+    private static func sessionID(from fileURL: URL) -> String? {
+        let fileName = fileURL.deletingPathExtension().lastPathComponent
+        guard fileName.count >= 36 else {
+            return nil
+        }
+        let candidate = String(fileName.suffix(36))
+        return UUID(uuidString: candidate) == nil ? nil : candidate
+    }
+
+    private func threadNamesBySessionID(matching sessionIDs: Set<String>?) -> SessionIndexResult {
+        if sessionIDs?.isEmpty == true {
             return SessionIndexResult(threadNames: [:], bytesRead: 0)
         }
 
@@ -334,6 +520,7 @@ public final class CodexSessionScanner {
 public final class CodexSessionScanCache: @unchecked Sendable {
     private struct Storage: Sendable {
         var entries: [SessionScanCacheKey: ParseResult] = [:]
+        var keysByPath: [String: SessionScanCacheKey] = [:]
     }
 
     private let storage = OSAllocatedUnfairLock(initialState: Storage())
@@ -345,7 +532,10 @@ public final class CodexSessionScanCache: @unchecked Sendable {
     }
 
     public func removeAll() {
-        storage.withLock { $0.entries.removeAll(keepingCapacity: true) }
+        storage.withLock { storage in
+            storage.entries.removeAll(keepingCapacity: true)
+            storage.keysByPath.removeAll(keepingCapacity: true)
+        }
     }
 
     fileprivate func result(for key: SessionScanCacheKey) -> ParseResult? {
@@ -354,10 +544,11 @@ public final class CodexSessionScanCache: @unchecked Sendable {
 
     fileprivate func store(_ result: ParseResult, for key: SessionScanCacheKey) {
         storage.withLock { storage in
-            storage.entries = storage.entries.filter { entry in
-                entry.key.path != key.path || entry.key == key
+            if let previousKey = storage.keysByPath[key.path], previousKey != key {
+                storage.entries.removeValue(forKey: previousKey)
             }
             storage.entries[key] = result
+            storage.keysByPath[key.path] = key
         }
     }
 }
@@ -378,6 +569,12 @@ fileprivate struct SessionFileCandidate: Sendable {
     let url: URL
     let modificationDate: Date
     let fileSize: Int
+    let metadata: CodexThreadMetadata?
+}
+
+private struct SessionFileDiscovery: Sendable {
+    let candidates: [SessionFileCandidate]
+    let mode: String
 }
 
 private struct IndexedSessionFileCandidate: Sendable {
@@ -411,7 +608,7 @@ private final class SessionIndexParser {
         self.configuration = configuration
     }
 
-    func parse(fileURL: URL, matching sessionIDs: Set<String>) throws -> SessionIndexResult {
+    func parse(fileURL: URL, matching sessionIDs: Set<String>?) throws -> SessionIndexResult {
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer {
             try? handle.close()
@@ -460,7 +657,7 @@ private final class SessionIndexParser {
                 }
             }
 
-            if threadNames.count == sessionIDs.count {
+            if let sessionIDs, threadNames.count == sessionIDs.count {
                 return SessionIndexResult(threadNames: threadNames, bytesRead: bytesRead)
             }
         }
@@ -474,11 +671,11 @@ private final class SessionIndexParser {
 
     private func parseLine(
         _ line: Data.SubSequence,
-        matching sessionIDs: Set<String>,
+        matching sessionIDs: Set<String>?,
         into threadNames: inout [String: String]
     ) {
         guard let sessionID = FastJSONValue.string(after: FastJSONPattern.id, in: line),
-              sessionIDs.contains(sessionID),
+              sessionIDs?.contains(sessionID) ?? true,
               let threadName = FastJSONValue.string(after: FastJSONPattern.threadName, in: line),
               threadName.isEmpty == false
         else {
@@ -510,6 +707,7 @@ private final class FastCodexJSONLParser {
         var bytesRead = 0
         var maximumBufferedLineBytes = 0
         var oversizedLines = 0
+        var parserState = FastParserState()
 
         while let chunk = try handle.read(upToCount: configuration.chunkSizeBytes),
               chunk.isEmpty == false
@@ -524,20 +722,28 @@ private final class FastCodexJSONLParser {
                         skippingOversizedLine = false
                     } else if pendingLine.isEmpty {
                         if lineStart < index {
-                            parseLine(chunk[lineStart..<index], into: &snapshot)
+                            parseLine(chunk[lineStart..<index], into: &snapshot, state: &parserState)
                         }
                     } else {
                         let segment = chunk[lineStart..<index]
                         if pendingLine.count + segment.count > configuration.maximumLineBufferBytes {
                             appendCapped(segment, to: &pendingLine)
                             maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
-                            parseLine(pendingLine[pendingLine.startIndex..<pendingLine.endIndex], into: &snapshot)
+                            parseLine(
+                                pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
+                                into: &snapshot,
+                                state: &parserState
+                            )
                             pendingLine.removeAll(keepingCapacity: false)
                             oversizedLines += 1
                         } else {
                             pendingLine.append(segment)
                             maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
-                            parseLine(pendingLine[pendingLine.startIndex..<pendingLine.endIndex], into: &snapshot)
+                            parseLine(
+                                pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
+                                into: &snapshot,
+                                state: &parserState
+                            )
                             pendingLine.removeAll(keepingCapacity: false)
                         }
                     }
@@ -554,7 +760,11 @@ private final class FastCodexJSONLParser {
                     maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
                     // The fields Modex needs occur near the front of Codex JSONL records.
                     // Parse the retained prefix, then skip the rest of this pathological line.
-                    parseLine(pendingLine[pendingLine.startIndex..<pendingLine.endIndex], into: &snapshot)
+                    parseLine(
+                        pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
+                        into: &snapshot,
+                        state: &parserState
+                    )
                     pendingLine.removeAll(keepingCapacity: false)
                     oversizedLines += 1
                     skippingOversizedLine = true
@@ -566,7 +776,11 @@ private final class FastCodexJSONLParser {
         }
 
         if skippingOversizedLine == false, pendingLine.isEmpty == false {
-            parseLine(pendingLine[pendingLine.startIndex..<pendingLine.endIndex], into: &snapshot)
+            parseLine(
+                pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
+                into: &snapshot,
+                state: &parserState
+            )
         }
 
         if snapshot.updatedAt == nil {
@@ -599,7 +813,11 @@ private final class FastCodexJSONLParser {
         pendingLine.append(segment.prefix(remainingBytes))
     }
 
-    private func parseLine(_ line: Data.SubSequence, into snapshot: inout SessionSnapshot) {
+    private func parseLine(
+        _ line: Data.SubSequence,
+        into snapshot: inout SessionSnapshot,
+        state: inout FastParserState
+    ) {
         guard let topLevelType = FastJSONValue.string(after: FastJSONPattern.type, in: line) else {
             return
         }
@@ -608,9 +826,16 @@ private final class FastCodexJSONLParser {
         let payloadType = isSessionMeta ? nil : FastJSONValue.string(after: FastJSONPattern.payloadType, in: line)
         let isTokenCount = topLevelType == "token_count" || payloadType == "token_count"
         let isTurnContext = topLevelType == "turn_context" || payloadType == "turn_context"
+        let isThreadSettings = payloadType == "thread_settings_applied"
         let isTaskComplete = payloadType == "task_complete"
         let isCommandEnd = payloadType == "exec_command_end"
         let isToolCall = topLevelType == "response_item" && Self.isToolCallPayloadType(payloadType)
+        let isToolOutput = topLevelType == "response_item" && Self.isToolOutputPayloadType(payloadType)
+        let isPatchEnd = payloadType == "patch_apply_end"
+        let isMCPToolCallEnd = payloadType == "mcp_tool_call_end"
+        let isWebSearchEnd = payloadType == "web_search_end"
+        let isSubagentActivity = payloadType == "sub_agent_activity"
+        let isTurnAborted = payloadType == "turn_aborted"
         let hasFileChanges = FastJSONValue.contains(FastJSONPattern.changes, in: line)
         let isCompaction = topLevelType.contains("compact")
             || payloadType?.contains("compact") == true
@@ -618,9 +843,16 @@ private final class FastCodexJSONLParser {
         guard isSessionMeta
             || isTokenCount
             || isTurnContext
+            || isThreadSettings
             || isTaskComplete
             || isCommandEnd
             || isToolCall
+            || isToolOutput
+            || isPatchEnd
+            || isMCPToolCallEnd
+            || isWebSearchEnd
+            || isSubagentActivity
+            || isTurnAborted
             || hasFileChanges
             || isCompaction
         else {
@@ -638,6 +870,20 @@ private final class FastCodexJSONLParser {
                 ?? FastJSONValue.string(after: FastJSONPattern.id, in: line)
                 ?? snapshot.sessionID
             snapshot.workingDirectory = FastJSONValue.string(after: FastJSONPattern.cwd, in: line) ?? snapshot.workingDirectory
+            snapshot.cliVersion = nonEmpty(FastJSONValue.string(after: FastJSONPattern.cliVersion, in: line))
+                ?? snapshot.cliVersion
+            snapshot.modelProvider = nonEmpty(FastJSONValue.string(after: FastJSONPattern.modelProvider, in: line))
+                ?? snapshot.modelProvider
+            snapshot.source = nonEmpty(FastJSONValue.string(after: FastJSONPattern.source, in: line))
+                ?? snapshot.source
+            snapshot.agentNickname = nonEmpty(FastJSONValue.string(after: FastJSONPattern.agentNickname, in: line))
+                ?? snapshot.agentNickname
+            snapshot.agentRole = nonEmpty(FastJSONValue.string(after: FastJSONPattern.agentRole, in: line))
+                ?? snapshot.agentRole
+            snapshot.agentPath = nonEmpty(FastJSONValue.string(after: FastJSONPattern.agentPath, in: line))
+                ?? snapshot.agentPath
+            snapshot.parentThreadID = nonEmpty(FastJSONValue.string(after: FastJSONPattern.parentThreadID, in: line))
+                ?? snapshot.parentThreadID
         }
 
         if isTokenCount {
@@ -648,16 +894,53 @@ private final class FastCodexJSONLParser {
             applyTurnContext(line: line, snapshot: &snapshot)
         }
 
+        if isThreadSettings {
+            applyThreadSettings(line: line, snapshot: &snapshot)
+        }
+
         if isTaskComplete {
             applyTaskComplete(line: line, snapshot: &snapshot)
         }
 
         if isCommandEnd {
-            applyCommandEnd(line: line, snapshot: &snapshot)
+            applyCommandEnd(line: line, snapshot: &snapshot, state: &state)
         }
 
         if isToolCall {
             snapshot.toolCallEvents += 1
+            applyToolCall(line: line, snapshot: &snapshot, state: &state)
+        }
+
+        if isToolOutput {
+            applyToolOutput(
+                line: line,
+                payloadType: payloadType,
+                snapshot: &snapshot,
+                state: &state
+            )
+        }
+
+        if isPatchEnd {
+            snapshot.patchEvents += 1
+            if FastJSONValue.bool(after: FastJSONPattern.success, in: line) == false {
+                snapshot.failedPatchEvents += 1
+            }
+        }
+
+        if isMCPToolCallEnd {
+            snapshot.mcpToolCallEvents += 1
+        }
+
+        if isWebSearchEnd {
+            snapshot.webSearchEvents += 1
+        }
+
+        if isSubagentActivity {
+            snapshot.subagentActivityEvents += 1
+        }
+
+        if isTurnAborted {
+            snapshot.abortedTurnEvents += 1
         }
 
         if hasFileChanges {
@@ -667,7 +950,7 @@ private final class FastCodexJSONLParser {
             )
         }
 
-        if isCompaction {
+        if isCompaction, state.shouldCountCompaction(at: timestamp) {
             snapshot.compactionEvents += 1
         }
     }
@@ -677,6 +960,10 @@ private final class FastCodexJSONLParser {
             return false
         }
         return payloadType.contains("call") && payloadType.contains("output") == false
+    }
+
+    private static func isToolOutputPayloadType(_ payloadType: String?) -> Bool {
+        payloadType == "function_call_output" || payloadType == "custom_tool_call_output"
     }
 
     private func applyTurnContext(line: Data.SubSequence, snapshot: inout SessionSnapshot) {
@@ -690,6 +977,19 @@ private final class FastCodexJSONLParser {
             ?? snapshot.summaryMode
         snapshot.realtimeActive = FastJSONValue.bool(after: FastJSONPattern.realtimeActive, in: line)
             ?? snapshot.realtimeActive
+        snapshot.personality = nonEmpty(FastJSONValue.string(after: FastJSONPattern.personality, in: line))
+            ?? snapshot.personality
+        snapshot.collaborationMode = nonEmpty(
+            FastJSONValue.string(after: FastJSONPattern.collaborationMode, in: line)
+        )
+            ?? nonEmpty(FastJSONValue.string(after: FastJSONPattern.collaborationModeObject, in: line))
+            ?? snapshot.collaborationMode
+    }
+
+    private func applyThreadSettings(line: Data.SubSequence, snapshot: inout SessionSnapshot) {
+        applyTurnContext(line: line, snapshot: &snapshot)
+        snapshot.serviceTier = nonEmpty(FastJSONValue.string(after: FastJSONPattern.serviceTier, in: line))
+            ?? snapshot.serviceTier
     }
 
     private func nonEmpty(_ value: String?) -> String? {
@@ -728,24 +1028,117 @@ private final class FastCodexJSONLParser {
         }
     }
 
-    private func applyCommandEnd(line: Data.SubSequence, snapshot: inout SessionSnapshot) {
-        snapshot.commandEvents += 1
+    private func applyCommandEnd(
+        line: Data.SubSequence,
+        snapshot: inout SessionSnapshot,
+        state: inout FastParserState
+    ) {
+        let callID = FastJSONValue.string(after: FastJSONPattern.callID, in: line)
+        if let callID {
+            if state.countedCommandCallIDs.insert(callID).inserted {
+                snapshot.commandEvents += 1
+            }
+        } else {
+            snapshot.commandEvents += 1
+        }
         if let exitCode = FastJSONValue.int(after: FastJSONPattern.exitCode, in: line),
            exitCode != 0
         {
-            snapshot.failedCommandEvents += 1
-            if snapshot.failedCommandSummaries.count < 24 {
-                snapshot.failedCommandSummaries.append(
-                    CommandFailureSummary(
-                        timestamp: dateValue(after: FastJSONPattern.timestamp, in: line),
-                        commandName: sanitizedCommandName(
-                            FastJSONValue.stringArray(after: FastJSONPattern.command, in: line).first
-                        ),
-                        exitCode: exitCode
-                    )
-                )
-            }
+            recordCommandFailure(
+                exitCode: exitCode,
+                commandName: sanitizedCommandName(
+                    FastJSONValue.stringArray(after: FastJSONPattern.command, in: line).first
+                ),
+                timestamp: dateValue(after: FastJSONPattern.timestamp, in: line),
+                snapshot: &snapshot
+            )
         }
+    }
+
+    private func applyToolCall(
+        line: Data.SubSequence,
+        snapshot: inout SessionSnapshot,
+        state: inout FastParserState
+    ) {
+        guard let name = FastJSONValue.string(after: FastJSONPattern.name, in: line),
+              name == "exec" || name == "exec_command",
+              let callID = FastJSONValue.string(after: FastJSONPattern.callID, in: line)
+        else {
+            return
+        }
+
+        if state.countedCommandCallIDs.insert(callID).inserted {
+            snapshot.commandEvents += 1
+        }
+        state.pendingCommandNames[callID] = name
+    }
+
+    private func applyToolOutput(
+        line: Data.SubSequence,
+        payloadType: String?,
+        snapshot: inout SessionSnapshot,
+        state: inout FastParserState
+    ) {
+        guard let callID = FastJSONValue.string(after: FastJSONPattern.callID, in: line),
+              let commandName = state.pendingCommandNames.removeValue(forKey: callID),
+              let output = toolOutputText(line, payloadType: payloadType)
+        else {
+            return
+        }
+
+        guard let exitCode = commandExitCode(output), exitCode != 0 else {
+            return
+        }
+        recordCommandFailure(
+            exitCode: exitCode,
+            commandName: commandName,
+            timestamp: dateValue(after: FastJSONPattern.timestamp, in: line),
+            snapshot: &snapshot
+        )
+    }
+
+    private func toolOutputText(_ line: Data.SubSequence, payloadType: String?) -> String? {
+        if payloadType == "custom_tool_call_output",
+           FastJSONValue.contains(FastJSONPattern.outputArray, in: line)
+        {
+            return FastJSONValue.stringPrefix(after: FastJSONPattern.text, in: line, maximumBytes: 512)
+        }
+        return FastJSONValue.stringPrefix(after: FastJSONPattern.output, in: line, maximumBytes: 512)
+    }
+
+    private func commandExitCode(_ output: String) -> Int? {
+        if output.hasPrefix("Script failed") {
+            return 1
+        }
+        if output.hasPrefix("Script completed") || output.hasPrefix("Script running") {
+            return 0
+        }
+
+        let bytes = Data(output.utf8)
+        if let exitCode = FastJSONValue.int(after: FastJSONPattern.exitCode, in: bytes[...]) {
+            return exitCode
+        }
+        return FastJSONValue.int(after: FastJSONPattern.exitCodeText, in: bytes[...])
+            ?? FastJSONValue.int(after: FastJSONPattern.processExitCodeText, in: bytes[...])
+    }
+
+    private func recordCommandFailure(
+        exitCode: Int,
+        commandName: String?,
+        timestamp: Date?,
+        snapshot: inout SessionSnapshot
+    ) {
+        snapshot.failedCommandEvents += 1
+        guard snapshot.failedCommandSummaries.count < 24 else {
+            return
+        }
+        snapshot.failedCommandSummaries.append(
+            CommandFailureSummary(
+                timestamp: timestamp,
+                commandName: commandName,
+                exitCode: exitCode
+            )
+        )
     }
 
     private func sanitizedCommandName(_ command: String?) -> String? {
@@ -766,13 +1159,29 @@ private final class FastCodexJSONLParser {
         let secondary = FastJSONValue
             .object(after: FastJSONPattern.secondaryRateLimit, in: object)
             .flatMap(rateLimitWindow)
+        let limitID = FastJSONValue.string(after: FastJSONPattern.limitID, in: object)
+        let limitName = FastJSONValue.string(after: FastJSONPattern.limitName, in: object)
         let planType = FastJSONValue.string(after: FastJSONPattern.planType, in: object)
+        let reachedType = FastJSONValue.string(after: FastJSONPattern.rateLimitReachedType, in: object)
 
-        guard primary != nil || secondary != nil || planType != nil else {
+        guard primary != nil
+            || secondary != nil
+            || limitID != nil
+            || limitName != nil
+            || planType != nil
+            || reachedType != nil
+        else {
             return nil
         }
 
-        return CodexRateLimits(primary: primary, secondary: secondary, planType: planType)
+        return CodexRateLimits(
+            primary: primary,
+            secondary: secondary,
+            limitID: limitID,
+            limitName: limitName,
+            planType: planType,
+            reachedType: reachedType
+        )
     }
 
     private func rateLimitWindow(_ object: Data.SubSequence) -> CodexRateLimitWindow? {
@@ -804,12 +1213,65 @@ private final class FastCodexJSONLParser {
 
 }
 
+private struct FastParserState {
+    var pendingCommandNames: [String: String] = [:]
+    var countedCommandCallIDs: Set<String> = []
+    private var lastCompactionTimestamp: Date?
+
+    mutating func shouldCountCompaction(at timestamp: Date?) -> Bool {
+        guard let timestamp else {
+            return true
+        }
+        defer {
+            lastCompactionTimestamp = timestamp
+        }
+        guard let lastCompactionTimestamp else {
+            return true
+        }
+        return abs(timestamp.timeIntervalSince(lastCompactionTimestamp)) > 1
+    }
+}
+
 private enum FastJSONValue {
     static func string(after pattern: [UInt8], in bytes: Data.SubSequence) -> String? {
         guard let range = range(of: pattern, in: bytes) else {
             return nil
         }
         return jsonString(startingAt: range.upperBound, in: bytes)
+    }
+
+    static func stringPrefix(
+        after pattern: [UInt8],
+        in bytes: Data.SubSequence,
+        maximumBytes: Int
+    ) -> String? {
+        guard maximumBytes > 0,
+              let range = range(of: pattern, in: bytes)
+        else {
+            return nil
+        }
+
+        var output: [UInt8] = []
+        output.reserveCapacity(min(maximumBytes, 512))
+        var index = range.upperBound
+        while index < bytes.endIndex, output.count < maximumBytes {
+            let byte = bytes[index]
+            if byte == FastJSONPattern.quote {
+                break
+            }
+            if byte == FastJSONPattern.backslash {
+                let nextIndex = bytes.index(after: index)
+                guard nextIndex < bytes.endIndex else {
+                    break
+                }
+                appendEscapedByte(bytes[nextIndex], to: &output)
+                index = bytes.index(after: nextIndex)
+                continue
+            }
+            output.append(byte)
+            index = bytes.index(after: index)
+        }
+        return output.isEmpty ? nil : String(decoding: output, as: UTF8.self)
     }
 
     static func int(after pattern: [UInt8], in bytes: Data.SubSequence) -> Int? {
@@ -1294,14 +1756,31 @@ private enum FastJSONPattern {
     static let threadName = Array("\"thread_name\":\"".utf8)
     static let cwd = Array("\"cwd\":\"".utf8)
     static let model = Array("\"model\":\"".utf8)
+    static let modelProvider = Array("\"model_provider\":\"".utf8)
     static let reasoningEffort = Array("\"reasoning_effort\":\"".utf8)
     static let effort = Array("\"effort\":\"".utf8)
+    static let serviceTier = Array("\"service_tier\":\"".utf8)
+    static let personality = Array("\"personality\":\"".utf8)
+    static let collaborationMode = Array("\"collaboration_mode\":\"".utf8)
+    static let collaborationModeObject = Array("\"collaboration_mode\":{\"mode\":\"".utf8)
     static let summary = Array("\"summary\":\"".utf8)
     static let realtimeActive = Array("\"realtime_active\":".utf8)
+    static let cliVersion = Array("\"cli_version\":\"".utf8)
+    static let source = Array("\"source\":\"".utf8)
+    static let agentNickname = Array("\"agent_nickname\":\"".utf8)
+    static let agentRole = Array("\"agent_role\":\"".utf8)
+    static let agentPath = Array("\"agent_path\":\"".utf8)
+    static let parentThreadID = Array("\"parent_thread_id\":\"".utf8)
     static let durationMilliseconds = Array("\"duration_ms\":".utf8)
     static let timeToFirstTokenMilliseconds = Array("\"time_to_first_token_ms\":".utf8)
     static let exitCode = Array("\"exit_code\":".utf8)
     static let command = Array("\"command\":[".utf8)
+    static let callID = Array("\"call_id\":\"".utf8)
+    static let name = Array("\"name\":\"".utf8)
+    static let output = Array("\"output\":\"".utf8)
+    static let outputArray = Array("\"output\":[".utf8)
+    static let text = Array("\"text\":\"".utf8)
+    static let success = Array("\"success\":".utf8)
     static let changes = Array("\"changes\":{".utf8)
     static let lastTokenUsage = Array("\"last_token_usage\":{".utf8)
     static let totalTokenUsage = Array("\"total_token_usage\":{".utf8)
@@ -1313,6 +1792,11 @@ private enum FastJSONPattern {
     static let windowMinutes = Array("\"window_minutes\":".utf8)
     static let resetsAt = Array("\"resets_at\":".utf8)
     static let planType = Array("\"plan_type\":\"".utf8)
+    static let limitID = Array("\"limit_id\":\"".utf8)
+    static let limitName = Array("\"limit_name\":\"".utf8)
+    static let rateLimitReachedType = Array("\"rate_limit_reached_type\":\"".utf8)
+    static let exitCodeText = Array("Exit code: ".utf8)
+    static let processExitCodeText = Array("Process exited with code ".utf8)
     static let inputTokens = Array("\"input_tokens\":".utf8)
     static let cachedInputTokens = Array("\"cached_input_tokens\":".utf8)
     static let outputTokens = Array("\"output_tokens\":".utf8)

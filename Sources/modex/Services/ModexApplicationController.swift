@@ -13,7 +13,9 @@ final class ModexApplicationController: ObservableObject {
     private let agentEvidenceBuilder = ModexAgentInsightEvidenceBuilder()
     private var settings: ModexAppSettings
     private var latestSummary: ModexSummary?
+    private var latestSummaryConfiguration: ModexMonitorConfiguration?
     private var refreshTask: Task<Void, Never>?
+    private var refreshRequestedAfterCurrent = false
     private var refreshLoopTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
     private var intelligenceTestTask: Task<Void, Never>?
@@ -60,13 +62,16 @@ final class ModexApplicationController: ObservableObject {
             return
         }
 
+        let configuration = settings.monitorConfiguration
         model.isRefreshing = true
         refreshTask = Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
-            let result = await monitor.refresh()
-            finishRefresh(result)
+            let result = await monitor.refresh { [weak self] summary in
+                await self?.receiveRefreshProgress(summary, configuration: configuration)
+            }
+            finishRefresh(result, configuration: configuration)
         }
     }
 
@@ -100,7 +105,7 @@ final class ModexApplicationController: ObservableObject {
                     return
                 }
                 await monitor.update(configuration: settings.monitorConfiguration)
-                refresh()
+                requestRefreshAfterCurrent()
             }
         }
     }
@@ -118,7 +123,7 @@ final class ModexApplicationController: ObservableObject {
                 return
             }
             await monitor.flushCache()
-            refresh()
+            requestRefreshAfterCurrent()
         }
     }
 
@@ -227,26 +232,81 @@ final class ModexApplicationController: ObservableObject {
         }
     }
 
-    private func finishRefresh(_ result: ModexRefreshResult) {
+    private func finishRefresh(
+        _ result: ModexRefreshResult,
+        configuration: ModexMonitorConfiguration
+    ) {
         refreshTask = nil
-        model.isRefreshing = false
 
-        switch result {
-        case .success(let summary):
-            latestSummary = summary
-            model.readFailureMessage = nil
-            model.summary = summary
-            model.insights = signalEngine.insights(
-                for: summary,
-                history: model.history,
-                thresholds: settings.signalThresholds
-            )
-            updateHistory(for: summary)
-        case .failure(let message):
-            model.readFailureMessage = message
-            if latestSummary == nil {
-                model.summary = nil
+        if configuration == settings.monitorConfiguration {
+            switch result {
+            case .success(let summary):
+                latestSummary = summary
+                latestSummaryConfiguration = configuration
+                model.readFailureMessage = nil
+                model.summary = summary
+                model.insights = signalEngine.insights(
+                    for: summary,
+                    history: model.history,
+                    thresholds: settings.signalThresholds
+                )
+                updateHistory(for: summary)
+            case .failure(let message):
+                model.readFailureMessage = message
+                if latestSummary == nil {
+                    model.summary = nil
+                }
             }
+        }
+
+        if refreshRequestedAfterCurrent {
+            refreshRequestedAfterCurrent = false
+            refresh()
+        } else {
+            model.isRefreshing = false
+        }
+    }
+
+    private func receiveRefreshProgress(
+        _ summary: ModexSummary,
+        configuration: ModexMonitorConfiguration
+    ) {
+        guard configuration == settings.monitorConfiguration else {
+            return
+        }
+        model.readFailureMessage = nil
+        model.summary = mergedProgressSummary(summary, configuration: configuration)
+    }
+
+    private func mergedProgressSummary(
+        _ progress: ModexSummary,
+        configuration: ModexMonitorConfiguration
+    ) -> ModexSummary {
+        guard latestSummaryConfiguration == configuration,
+              let latestSummary,
+              let metrics = progress.scanMetrics,
+              metrics.filesParsed < metrics.filesSelected
+        else {
+            return progress
+        }
+
+        var sessionsByPath = Dictionary(
+            uniqueKeysWithValues: latestSummary.sessions.map { ($0.fileURL.path, $0) }
+        )
+        for session in progress.sessions {
+            sessionsByPath[session.fileURL.path] = session
+        }
+        return ModexSummary(
+            sessions: Array(sessionsByPath.values),
+            scanMetrics: metrics
+        )
+    }
+
+    private func requestRefreshAfterCurrent() {
+        if refreshTask == nil {
+            refresh()
+        } else {
+            refreshRequestedAfterCurrent = true
         }
     }
 

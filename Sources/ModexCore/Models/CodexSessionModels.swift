@@ -47,16 +47,25 @@ public struct TokenEvent: Equatable, Sendable {
 public struct CodexRateLimits: Equatable, Sendable {
     public let primary: CodexRateLimitWindow?
     public let secondary: CodexRateLimitWindow?
+    public let limitID: String?
+    public let limitName: String?
     public let planType: String?
+    public let reachedType: String?
 
     public init(
         primary: CodexRateLimitWindow? = nil,
         secondary: CodexRateLimitWindow? = nil,
-        planType: String? = nil
+        limitID: String? = nil,
+        limitName: String? = nil,
+        planType: String? = nil,
+        reachedType: String? = nil
     ) {
         self.primary = primary
         self.secondary = secondary
+        self.limitID = limitID
+        self.limitName = limitName
         self.planType = planType
+        self.reachedType = reachedType
     }
 
     public var mostConstrainedLeftPercent: Double? {
@@ -101,8 +110,20 @@ public struct SessionSnapshot: Equatable, Sendable {
     public var workingDirectory: String?
     public var model: String?
     public var reasoningEffort: String?
+    public var serviceTier: String?
+    public var personality: String?
+    public var collaborationMode: String?
     public var summaryMode: String?
     public var realtimeActive: Bool?
+    public var source: String?
+    public var cliVersion: String?
+    public var modelProvider: String?
+    public var agentNickname: String?
+    public var agentRole: String?
+    public var agentPath: String?
+    public var parentThreadID: String?
+    public var threadSource: String?
+    public var isArchived: Bool
     public var startedAt: Date?
     public var updatedAt: Date?
     public var tokenEvents: [TokenEvent]
@@ -114,6 +135,12 @@ public struct SessionSnapshot: Equatable, Sendable {
     public var failedCommandSummaries: [CommandFailureSummary]
     public var toolCallEvents: Int
     public var changedFileEvents: Int
+    public var patchEvents: Int
+    public var failedPatchEvents: Int
+    public var mcpToolCallEvents: Int
+    public var webSearchEvents: Int
+    public var subagentActivityEvents: Int
+    public var abortedTurnEvents: Int
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
@@ -122,8 +149,20 @@ public struct SessionSnapshot: Equatable, Sendable {
         workingDirectory = nil
         model = nil
         reasoningEffort = nil
+        serviceTier = nil
+        personality = nil
+        collaborationMode = nil
         summaryMode = nil
         realtimeActive = nil
+        source = nil
+        cliVersion = nil
+        modelProvider = nil
+        agentNickname = nil
+        agentRole = nil
+        agentPath = nil
+        parentThreadID = nil
+        threadSource = nil
+        isArchived = false
         startedAt = nil
         updatedAt = nil
         tokenEvents = []
@@ -135,6 +174,12 @@ public struct SessionSnapshot: Equatable, Sendable {
         failedCommandSummaries = []
         toolCallEvents = 0
         changedFileEvents = 0
+        patchEvents = 0
+        failedPatchEvents = 0
+        mcpToolCallEvents = 0
+        webSearchEvents = 0
+        subagentActivityEvents = 0
+        abortedTurnEvents = 0
     }
 
     public var latestTokenEvent: TokenEvent? {
@@ -339,6 +384,9 @@ public struct ScanMetrics: Equatable, Sendable {
     public let chunkSizeBytes: Int
     public let maximumLineBufferBytes: Int
     public let sessionIndexMaximumLineBufferBytes: Int
+    public let discoveryMode: String
+    public let metadataHits: Int
+    public let sessionIndexBytesRead: Int
     public let cacheEnabled: Bool
     public let cacheHits: Int
     public let cacheMisses: Int
@@ -357,6 +405,9 @@ public struct ScanMetrics: Equatable, Sendable {
         chunkSizeBytes: Int,
         maximumLineBufferBytes: Int,
         sessionIndexMaximumLineBufferBytes: Int,
+        discoveryMode: String = "filesystem",
+        metadataHits: Int = 0,
+        sessionIndexBytesRead: Int = 0,
         cacheEnabled: Bool = false,
         cacheHits: Int = 0,
         cacheMisses: Int = 0,
@@ -374,6 +425,9 @@ public struct ScanMetrics: Equatable, Sendable {
         self.chunkSizeBytes = chunkSizeBytes
         self.maximumLineBufferBytes = maximumLineBufferBytes
         self.sessionIndexMaximumLineBufferBytes = sessionIndexMaximumLineBufferBytes
+        self.discoveryMode = discoveryMode
+        self.metadataHits = metadataHits
+        self.sessionIndexBytesRead = sessionIndexBytesRead
         self.cacheEnabled = cacheEnabled
         self.cacheHits = cacheHits
         self.cacheMisses = cacheMisses

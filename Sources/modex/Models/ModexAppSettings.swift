@@ -214,7 +214,6 @@ struct ModexParserTuningSettings: Equatable, Sendable {
 }
 
 struct ModexAppSettings: Equatable, Sendable {
-    var scanLimit: Int
     var refreshIntervalSeconds: TimeInterval
     var includeArchivedSessions: Bool
     var scanCacheEnabled: Bool
@@ -226,7 +225,6 @@ struct ModexAppSettings: Equatable, Sendable {
     var parserTuning: ModexParserTuningSettings
 
     static let `default` = ModexAppSettings(
-        scanLimit: ModexMonitorConfiguration.defaultScanLimit,
         refreshIntervalSeconds: ModexMonitorConfiguration.defaultRefreshIntervalSeconds,
         includeArchivedSessions: false,
         scanCacheEnabled: true,
@@ -240,7 +238,6 @@ struct ModexAppSettings: Equatable, Sendable {
 
     var monitorConfiguration: ModexMonitorConfiguration {
         ModexMonitorConfiguration(
-            scanLimit: scanLimit,
             refreshIntervalSeconds: refreshIntervalSeconds,
             scannerConfiguration: parserTuning.scannerConfiguration(
                 includeArchivedSessions: includeArchivedSessions
@@ -251,7 +248,6 @@ struct ModexAppSettings: Equatable, Sendable {
 
     func normalized() -> ModexAppSettings {
         ModexAppSettings(
-            scanLimit: min(max(scanLimit, 1), 100),
             refreshIntervalSeconds: min(max(refreshIntervalSeconds, 10), 300),
             includeArchivedSessions: includeArchivedSessions,
             scanCacheEnabled: scanCacheEnabled,
@@ -268,7 +264,6 @@ struct ModexAppSettings: Equatable, Sendable {
 @MainActor
 final class ModexSettingsStore {
     private enum Key {
-        static let scanLimit = "scanLimit"
         static let refreshIntervalSeconds = "refreshIntervalSeconds"
         static let includeArchivedSessions = "includeArchivedSessions"
         static let scanCacheEnabled = "scanCacheEnabled"
@@ -297,7 +292,6 @@ final class ModexSettingsStore {
     func load() -> ModexAppSettings {
         let defaults = ModexAppSettings.default
         return ModexAppSettings(
-            scanLimit: integer(forKey: Key.scanLimit, defaultValue: defaults.scanLimit),
             refreshIntervalSeconds: double(
                 forKey: Key.refreshIntervalSeconds,
                 defaultValue: defaults.refreshIntervalSeconds
@@ -371,7 +365,6 @@ final class ModexSettingsStore {
 
     func save(_ settings: ModexAppSettings) {
         let settings = settings.normalized()
-        defaults.set(settings.scanLimit, forKey: Key.scanLimit)
         defaults.set(settings.refreshIntervalSeconds, forKey: Key.refreshIntervalSeconds)
         defaults.set(settings.includeArchivedSessions, forKey: Key.includeArchivedSessions)
         defaults.set(settings.scanCacheEnabled, forKey: Key.scanCacheEnabled)
