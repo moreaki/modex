@@ -253,7 +253,7 @@
 "dashboard.commandsShort" = "%d cmd";
 "dashboard.failedShort" = "%d failed";
 "dashboard.failures" = "Failures";
-"dashboard.fastestGrowth" = "Fastest growth";
+"dashboard.fastestGrowth" = "Largest context jump";
 "dashboard.filesChanged" = "Files changed";
 "dashboard.filesDetail" = "Files changed: %d";
 "dashboard.filesShort" = "%d files";
@@ -281,7 +281,8 @@
 "detail.commandsDetail" = "Shell command completions captured from session logs.";
 "detail.completedTurns" = "Completed turns";
 "detail.completedTurnsDetail" = "Turns with completion timing.";
-"detail.contextGrowthDetail" = "Largest latest input-context growth by thread.";
+"detail.contextGrowthDetail" = "Largest input-context increase between the latest two token-count events.";
+"detail.contextGrowthLegend" = "line: recent jumps · value: latest";
 "detail.diagnostics" = "Diagnostics";
 "detail.failures" = "Failures";
 "detail.failuresDetail" = "Commands that completed with a non-zero exit code.";

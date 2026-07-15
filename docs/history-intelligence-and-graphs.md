@@ -397,6 +397,7 @@ Every ranked item should expose short reasons such as "85% context", "fast growt
 - Prefer fewer, well-labeled graphs over many tiny decorative charts.
 - Keep overview charts large enough to read at menu-popover distance.
 - Use row sparklines only where they answer "is this rising, falling, spiky, or calm?"
+- Context-growth leaders use one measure throughout: each point is the non-negative change in input-context tokens between consecutive token-count events, and the adjacent value is the latest such change. Do not pair an absolute context value with a cumulative-total sparkline.
 - Show exact values in hover/detail surfaces.
 - Keep light and black themes equally polished.
 - Never let graph labels, row values, or hover reveals overlap.

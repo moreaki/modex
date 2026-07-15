@@ -253,7 +253,7 @@
 "dashboard.commandsShort" = "%d Bef.";
 "dashboard.failedShort" = "%d fehlgeschl.";
 "dashboard.failures" = "Fehler";
-"dashboard.fastestGrowth" = "Schnellstes Wachstum";
+"dashboard.fastestGrowth" = "Größter Kontextsprung";
 "dashboard.filesChanged" = "Geänderte Dateien";
 "dashboard.filesDetail" = "Geänderte Dateien: %d";
 "dashboard.filesShort" = "%d Dateien";
@@ -281,7 +281,8 @@
 "detail.commandsDetail" = "Shell-Befehlsabschlüsse aus Sitzungsprotokollen.";
 "detail.completedTurns" = "Abgeschlossene Turns";
 "detail.completedTurnsDetail" = "Turns mit Abschlusszeitmessung.";
-"detail.contextGrowthDetail" = "Größtes aktuelles Eingabekontext-Wachstum nach Thread.";
+"detail.contextGrowthDetail" = "Größte Eingabekontext-Zunahme zwischen den letzten beiden Token-Zählereignissen.";
+"detail.contextGrowthLegend" = "Linie: letzte Sprünge · Wert: neuester";
 "detail.diagnostics" = "Diagnose";
 "detail.failures" = "Fehler";
 "detail.failuresDetail" = "Befehle, die mit einem Exit-Code ungleich null abgeschlossen wurden.";

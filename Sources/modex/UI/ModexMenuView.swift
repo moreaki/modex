@@ -497,7 +497,8 @@ struct ModexThreadDetailWindow: View {
             ThreadMetricCardsTab(
                 sessions: filteredSessions,
                 cards: tokenCards,
-                leaders: tokenLeaders
+                leaders: tokenLeaders,
+                leaderLegend: ModexStrings.text("detail.contextGrowthLegend")
             )
         case .performance:
             ThreadMetricCardsTab(
@@ -594,7 +595,7 @@ struct ModexThreadDetailWindow: View {
                 ThreadLeaderRow(
                     session: $0,
                     value: "+\(compact($0.latestContextGrowthTokens))",
-                    trendValues: totalTrendValues(for: $0, history: model.history)
+                    trendValues: contextGrowthTrendValues(for: $0)
                 )
             }
     }
@@ -736,6 +737,7 @@ private struct ThreadMetricCardsTab: View {
     let sessions: [SessionSnapshot]
     let cards: [ThreadMetricCard]
     let leaders: [ThreadLeaderRow]
+    var leaderLegend: String? = nil
 
     @Environment(\.modexPalette) private var palette
 
@@ -757,9 +759,17 @@ private struct ThreadMetricCardsTab: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(ModexStrings.text("detail.leaders"))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(palette.secondaryText)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(ModexStrings.text("detail.leaders"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(palette.secondaryText)
+                        Spacer()
+                        if let leaderLegend {
+                            Text(leaderLegend)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(palette.mutedText)
+                        }
+                    }
 
                     VStack(spacing: 0) {
                         ForEach(leaders) { row in
@@ -4953,6 +4963,13 @@ func totalTrendValues(
         .map { Double($0.totalUsage.totalTokens) }
         .filter { $0 > 0 }
     return Array(values.suffix(limit))
+}
+
+func contextGrowthTrendValues(
+    for session: SessionSnapshot,
+    limit: Int = 14
+) -> [Double] {
+    Array(session.contextGrowthTokensByEvent.map(Double.init).suffix(limit))
 }
 
 func medianTurnTrendValues(

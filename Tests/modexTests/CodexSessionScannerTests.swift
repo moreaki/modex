@@ -52,7 +52,8 @@ import Testing
     #expect(summary.latestSession?.cachedInputPercent == 7.5)
     #expect(summary.latestSession?.reasoningOutputPercent == 12.0 / 82.0 * 100.0)
     #expect(summary.latestSession?.averageContextGrowthPerTurnTokens == 200)
-    #expect(summary.latestSession?.latestContextGrowthTokens == 300)
+    #expect(summary.latestSession?.latestContextGrowthTokens == 200)
+    #expect(summary.latestSession?.contextGrowthTokensByEvent == [200])
     #expect(summary.latestSession?.latestRateLimits?.primary?.usedPercent == 9.0)
     #expect(summary.latestSession?.latestRateLimits?.primary?.leftPercent == 91.0)
     #expect(summary.latestSession?.latestRateLimits?.primary?.windowMinutes == 300)
@@ -76,6 +77,40 @@ import Testing
     #expect((summary.scanMetrics?.bytesRead ?? 0) > 0)
     #expect((summary.scanMetrics?.durationSeconds ?? 0) >= 0)
     #expect(summary.scanMetrics?.parserMode == "streaming-byte-scan")
+}
+
+@Test func contextGrowthMeasuresConsecutiveInputContextJumps() {
+    var session = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/growth.jsonl"))
+    session.tokenEvents = [
+        TokenEvent(
+            timestamp: nil,
+            lastUsage: TokenUsage(inputTokens: 100, totalTokens: 120),
+            totalUsage: TokenUsage(inputTokens: 100, totalTokens: 120),
+            modelContextWindow: 1_000
+        ),
+        TokenEvent(
+            timestamp: nil,
+            lastUsage: TokenUsage(inputTokens: 350, totalTokens: 390),
+            totalUsage: TokenUsage(inputTokens: 450, totalTokens: 510),
+            modelContextWindow: 1_000
+        ),
+        TokenEvent(
+            timestamp: nil,
+            lastUsage: TokenUsage(inputTokens: 80, totalTokens: 100),
+            totalUsage: TokenUsage(inputTokens: 530, totalTokens: 610),
+            modelContextWindow: 1_000
+        ),
+        TokenEvent(
+            timestamp: nil,
+            lastUsage: TokenUsage(inputTokens: 140, totalTokens: 170),
+            totalUsage: TokenUsage(inputTokens: 670, totalTokens: 780),
+            modelContextWindow: 1_000
+        ),
+    ]
+
+    #expect(session.contextGrowthTokensByEvent == [250, 0, 60])
+    #expect(session.latestContextGrowthTokens == 60)
+    #expect(session.averageContextGrowthPerTurnTokens == 103)
 }
 
 @Test func summarySeparatesHighestThreadContextFromGeneralAccountLimits() throws {

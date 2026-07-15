@@ -305,7 +305,7 @@ public struct SessionSnapshot: Equatable, Sendable {
     }
 
     public var averageContextGrowthPerTurnTokens: Int {
-        let values = tokenEvents.map(\.lastUsage.inputTokens).filter { $0 > 0 }
+        let values = contextGrowthTokensByEvent
         guard values.isEmpty == false else {
             return 0
         }
@@ -313,7 +313,17 @@ public struct SessionSnapshot: Equatable, Sendable {
     }
 
     public var latestContextGrowthTokens: Int {
-        latestTokenEvent?.lastUsage.inputTokens ?? 0
+        contextGrowthTokensByEvent.last ?? 0
+    }
+
+    public var contextGrowthTokensByEvent: [Int] {
+        guard tokenEvents.count > 1 else {
+            return []
+        }
+
+        return zip(tokenEvents, tokenEvents.dropFirst()).map { previous, current in
+            max(current.lastUsage.inputTokens - previous.lastUsage.inputTokens, 0)
+        }
     }
 
     private var turnTokenTotals: [Int] {

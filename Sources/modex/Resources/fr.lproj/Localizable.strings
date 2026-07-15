@@ -253,7 +253,7 @@
 "dashboard.commandsShort" = "%d cmd";
 "dashboard.failedShort" = "%d échecs";
 "dashboard.failures" = "Échecs";
-"dashboard.fastestGrowth" = "Croissance la plus rapide";
+"dashboard.fastestGrowth" = "Plus grand saut de contexte";
 "dashboard.filesChanged" = "Fichiers modifiés";
 "dashboard.filesDetail" = "Fichiers modifiés : %d";
 "dashboard.filesShort" = "%d fichiers";
@@ -281,7 +281,8 @@
 "detail.commandsDetail" = "Fins de commandes shell capturées depuis les journaux de session.";
 "detail.completedTurns" = "Tours terminés";
 "detail.completedTurnsDetail" = "Tours avec mesure du temps de complétion.";
-"detail.contextGrowthDetail" = "Plus forte croissance récente du contexte d’entrée par thread.";
+"detail.contextGrowthDetail" = "Plus forte hausse du contexte d’entrée entre les deux derniers événements de comptage.";
+"detail.contextGrowthLegend" = "courbe : sauts récents · valeur : dernier";
 "detail.diagnostics" = "Diagnostics";
 "detail.failures" = "Échecs";
 "detail.failuresDetail" = "Commandes terminées avec un code de sortie non nul.";

@@ -253,7 +253,7 @@
 "dashboard.commandsShort" = "%d cmd";
 "dashboard.failedShort" = "%d falliti";
 "dashboard.failures" = "Errori";
-"dashboard.fastestGrowth" = "Crescita più rapida";
+"dashboard.fastestGrowth" = "Maggior salto di contesto";
 "dashboard.filesChanged" = "File modificati";
 "dashboard.filesDetail" = "File modificati: %d";
 "dashboard.filesShort" = "%d file";
@@ -281,7 +281,8 @@
 "detail.commandsDetail" = "Completamenti di comandi shell catturati dai log di sessione.";
 "detail.completedTurns" = "Turni completati";
 "detail.completedTurnsDetail" = "Turni con tempi di completamento.";
-"detail.contextGrowthDetail" = "Maggiore crescita recente del contesto di input per thread.";
+"detail.contextGrowthDetail" = "Maggiore aumento del contesto di input tra gli ultimi due eventi di conteggio.";
+"detail.contextGrowthLegend" = "linea: salti recenti · valore: ultimo";
 "detail.diagnostics" = "Diagnostica";
 "detail.failures" = "Errori";
 "detail.failuresDetail" = "Comandi completati con codice di uscita diverso da zero.";
