@@ -195,7 +195,7 @@ private struct ModexMenuBarHoverCard: View {
             } else if let summary = model.summary {
                 VStack(alignment: .leading, spacing: 6) {
                     valueRow(
-                        ModexStrings.text("column.context.title"),
+                        ModexStrings.text("dashboard.highestContext"),
                         contextLeftValue(summary)
                     )
                     if let primary = summary.latestRateLimits?.primary {
@@ -241,8 +241,8 @@ private struct ModexMenuBarHoverCard: View {
             return ModexStrings.text("app.unknownContext")
         }
 
-        if let usedTokens = summary.latestSession?.contextUsedTokens,
-           let contextWindow = summary.latestSession?.contextWindow
+        if let usedTokens = summary.contextSession?.contextUsedTokens,
+           let contextWindow = summary.contextSession?.contextWindow
         {
             return ModexStrings.format(
                 "app.contextLeftDetailed",

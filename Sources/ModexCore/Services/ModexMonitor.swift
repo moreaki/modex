@@ -191,23 +191,23 @@ public struct ModexSummaryReportFormatter: Sendable {
         }
 
         if let percent = summary.contextUsagePercent {
-            lines.append("latest context usage: \(String(format: "%.1f%%", percent))")
+            lines.append("highest context usage: \(String(format: "%.1f%%", percent))")
         } else {
-            lines.append("latest context usage: unknown")
+            lines.append("highest context usage: unknown")
         }
 
         if let percent = summary.contextLeftPercent {
-            let usedTokens = summary.latestSession?.contextUsedTokens
+            let usedTokens = summary.contextSession?.contextUsedTokens
                 .map { $0.formatted() }
                 ?? "unknown"
-            let contextWindow = summary.latestSession?.contextWindow
+            let contextWindow = summary.contextSession?.contextWindow
                 .map { $0.formatted() }
                 ?? "unknown"
             lines.append(
-                "latest context left: \(String(format: "%.1f%%", percent)) (\(usedTokens) used / \(contextWindow))"
+                "highest context left: \(String(format: "%.1f%%", percent)) (\(usedTokens) used / \(contextWindow))"
             )
         } else {
-            lines.append("latest context left: unknown")
+            lines.append("highest context left: unknown")
         }
 
         if let rateLimits = summary.latestRateLimits {

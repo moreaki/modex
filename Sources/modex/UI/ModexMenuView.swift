@@ -1339,7 +1339,7 @@ private struct DashboardMetricGrid: View {
     }
 
     private var highestContext: Double? {
-        sessions.compactMap(\.contextUsagePercent).max()
+        summary?.contextUsagePercent
     }
 
     private var failedCommands: Int {
@@ -1538,7 +1538,7 @@ private struct DashboardHistoryPanel: View {
     }
 
     private var highestContextSession: SessionSnapshot? {
-        sessions.max { ($0.contextUsagePercent ?? -1) < ($1.contextUsagePercent ?? -1) }
+        summary?.contextSession
     }
 
     private var topTokenSession: SessionSnapshot? {

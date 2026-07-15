@@ -73,6 +73,25 @@ public struct CodexRateLimits: Equatable, Sendable {
             .compactMap(\.self)
             .min()
     }
+
+    public var isGeneralAccountLimit: Bool {
+        if let normalizedID = Self.normalized(limitID) {
+            return normalizedID == "codex"
+        }
+
+        guard let normalizedName = Self.normalized(limitName) else {
+            return true
+        }
+        return normalizedName == "codex"
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
 }
 
 public struct CodexRateLimitWindow: Equatable, Sendable {
@@ -321,10 +340,14 @@ public struct ModexSummary: Equatable, Sendable {
     public let averageTurnTokens: Int
     public let medianTurnTokens: Int
     public let compactionEvents: Int
+    /// Highest current context pressure among scanned, non-archived sessions.
     public let contextUsagePercent: Double?
     public let contextLeftPercent: Double?
+    /// Newest general Codex account limit, excluding named model-specific pools.
     public let latestRateLimits: CodexRateLimits?
+    public let latestRateLimitsObservedAt: Date?
     public let latestSession: SessionSnapshot?
+    public let contextSession: SessionSnapshot?
 
     public init(sessions: [SessionSnapshot], scanMetrics: ScanMetrics? = nil) {
         self.sessions = sessions.sorted {
@@ -351,9 +374,13 @@ public struct ModexSummary: Equatable, Sendable {
 
         compactionEvents = sessions.reduce(0) { $0 + $1.compactionEvents }
         latestSession = self.sessions.first
-        contextUsagePercent = latestSession?.contextUsagePercent
-        contextLeftPercent = latestSession?.contextLeftPercent
-        latestRateLimits = latestSession?.latestRateLimits
+        contextSession = Self.highestContextSession(in: self.sessions)
+        contextUsagePercent = contextSession?.contextUsagePercent
+        contextLeftPercent = contextSession?.contextLeftPercent
+
+        let generalRateLimits = Self.latestGeneralRateLimits(in: self.sessions)
+        latestRateLimits = generalRateLimits?.limits
+        latestRateLimitsObservedAt = generalRateLimits?.observedAt
     }
 
     private static func median(_ values: [Int]) -> Int {
@@ -362,6 +389,47 @@ public struct ModexSummary: Equatable, Sendable {
             return (values[middle - 1] + values[middle]) / 2
         }
         return values[middle]
+    }
+
+    private static func highestContextSession(in sessions: [SessionSnapshot]) -> SessionSnapshot? {
+        sessions.reduce(nil) { selected, session in
+            guard session.isArchived == false,
+                  let percent = session.contextUsagePercent
+            else {
+                return selected
+            }
+            guard let selected,
+                  let selectedPercent = selected.contextUsagePercent
+            else {
+                return session
+            }
+            return percent > selectedPercent ? session : selected
+        }
+    }
+
+    private static func latestGeneralRateLimits(
+        in sessions: [SessionSnapshot]
+    ) -> (limits: CodexRateLimits, observedAt: Date?)? {
+        var selected: (limits: CodexRateLimits, observedAt: Date?, orderingDate: Date)?
+
+        for session in sessions {
+            for event in session.tokenEvents {
+                guard let limits = event.rateLimits,
+                      limits.isGeneralAccountLimit
+                else {
+                    continue
+                }
+
+                let observedAt = event.timestamp ?? session.updatedAt
+                let orderingDate = observedAt ?? .distantPast
+                if let selected, orderingDate < selected.orderingDate {
+                    continue
+                }
+                selected = (limits, observedAt, orderingDate)
+            }
+        }
+
+        return selected.map { ($0.limits, $0.observedAt) }
     }
 }
 

@@ -78,6 +78,57 @@ import Testing
     #expect(summary.scanMetrics?.parserMode == "streaming-byte-scan")
 }
 
+@Test func summarySeparatesHighestThreadContextFromGeneralAccountLimits() throws {
+    var newestModelSpecificSession = SessionSnapshot(
+        fileURL: URL(fileURLWithPath: "/tmp/model-specific.jsonl")
+    )
+    newestModelSpecificSession.threadName = "Latest model-specific thread"
+    newestModelSpecificSession.updatedAt = Date(timeIntervalSince1970: 300)
+    newestModelSpecificSession.tokenEvents = [
+        TokenEvent(
+            timestamp: Date(timeIntervalSince1970: 300),
+            lastUsage: TokenUsage(inputTokens: 400, totalTokens: 400),
+            totalUsage: TokenUsage(inputTokens: 400, totalTokens: 400),
+            modelContextWindow: 1_000,
+            rateLimits: CodexRateLimits(
+                primary: CodexRateLimitWindow(usedPercent: 0, windowMinutes: 10_080),
+                limitID: "codex_bengalfox",
+                limitName: "GPT-5.3-Codex-Spark"
+            )
+        ),
+    ]
+
+    var highestContextSession = SessionSnapshot(
+        fileURL: URL(fileURLWithPath: "/tmp/general.jsonl")
+    )
+    highestContextSession.threadName = "Highest context thread"
+    highestContextSession.updatedAt = Date(timeIntervalSince1970: 200)
+    highestContextSession.tokenEvents = [
+        TokenEvent(
+            timestamp: Date(timeIntervalSince1970: 200),
+            lastUsage: TokenUsage(inputTokens: 860, totalTokens: 860),
+            totalUsage: TokenUsage(inputTokens: 860, totalTokens: 860),
+            modelContextWindow: 1_000,
+            rateLimits: CodexRateLimits(
+                primary: CodexRateLimitWindow(usedPercent: 7, windowMinutes: 10_080),
+                limitID: "codex"
+            )
+        ),
+    ]
+
+    let summary = ModexSummary(sessions: [highestContextSession, newestModelSpecificSession])
+
+    #expect(summary.latestSession?.threadName == "Latest model-specific thread")
+    #expect(summary.contextSession?.threadName == "Highest context thread")
+    #expect(summary.contextUsagePercent == 86)
+    #expect(summary.latestRateLimits?.limitID == "codex")
+    #expect(summary.latestRateLimits?.primary?.leftPercent == 93)
+    #expect(summary.latestRateLimitsObservedAt == Date(timeIntervalSince1970: 200))
+
+    let modelSpecificOnly = ModexSummary(sessions: [newestModelSpecificSession])
+    #expect(modelSpecificOnly.latestRateLimits == nil)
+}
+
 @Test func parsesSessionActivityAndPerformanceMetrics() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -734,7 +785,7 @@ import Testing
     #expect(report.contains("token events: 1"))
     #expect(report.contains("scan parser: streaming-byte-scan"))
     #expect(report.contains("scan index line buffer cap:"))
-    #expect(report.contains("latest context usage: 10.0%"))
+    #expect(report.contains("highest context usage: 10.0%"))
 }
 
 @Test func historyStorePersistsScanAndThreadSamples() async throws {

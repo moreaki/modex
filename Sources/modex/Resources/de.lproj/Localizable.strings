@@ -1,4 +1,4 @@
-"app.context" = "%d%% Kontext verwendet";
+"app.context" = "%d%% höchste Kontextnutzung";
 "app.contextLeftDetailed" = "%d%% übrig (%@ verwendet / %@)";
 "app.percentLeft" = "%d%% übrig";
 "app.percentLeftWithReset" = "%d%% übrig, setzt %@ zurück";

@@ -6,7 +6,7 @@ It reads local Codex data from `~/.codex`, uses Codex's read-only state index to
 
 ## What It Shows
 
-- A menu-bar heartbeat gauge with the latest scanned session context percentage.
+- A menu-bar heartbeat gauge with the highest context percentage among scanned active threads.
 - A Codex `/status` style overview with context left plus the rate-limit windows reported by current local logs.
 - A compact per-thread table grouped by project, using the indexed Codex thread title as the row title and the session id as secondary metadata.
 - A seven-thread recent-activity dashboard that appears first while the complete eligible thread set progressively fills the detached detail window.
@@ -54,13 +54,15 @@ The packaging script builds an optimized release binary by default; use `MODEX_B
 
 ## Menu-Bar Reading
 
-The number beside the menu-bar icon is the rounded context percentage used by the latest scanned Codex session:
+The number beside the menu-bar icon is the highest rounded context percentage used by any scanned active Codex thread:
 
 ```text
 input_tokens / model_context_window * 100
 ```
 
-If context usage is unavailable, Modex falls back to a compact total-token value. The circular gauge uses the configured context thresholds, with defaults of 55%, 78%, and 90%.
+This stable, risk-oriented reading changes when the most context-heavy thread grows or compacts; it does not switch merely because another thread became more recently active. If context usage is unavailable, Modex falls back to a compact total-token value. The circular gauge uses the configured context thresholds, with defaults of 55%, 78%, and 90%.
+
+The account-limit bars are separate from thread context. Modex selects the newest general Codex account-limit event across all scanned sessions and ignores named model-specific limit pools. The percentage shown there is capacity left, matching Codex's Usage & billing semantics.
 
 Clicking the menu-bar item opens immediately using the latest cached result, then refreshes in the background. On a cold read, Modex prioritizes the seven newest threads and publishes each row as it becomes available before progressively adding every remaining eligible thread. The default refresh interval is 60 seconds.
 
