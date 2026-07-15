@@ -486,13 +486,7 @@ public struct ModexInsight: Equatable, Sendable, Identifiable {
                 severity.rawValue.description,
                 sessionKey ?? "",
                 sessionID ?? "",
-                threadName ?? "",
-                projectTitle ?? "",
-                valueString(primaryValue),
-                valueString(secondaryValue),
                 count.map(String.init) ?? "",
-                evidenceCount.description,
-                updatedAt.map { String(Int($0.timeIntervalSince1970)) } ?? "",
             ]
         )
     }
@@ -508,11 +502,11 @@ public struct ModexInsight: Equatable, Sendable, Identifiable {
 
         if isRunning {
             nextStatus = .agentRunning
-            nextResult = nil
+            nextResult = result
             nextError = nil
         } else if let error {
             nextStatus = .agentFailed
-            nextResult = nil
+            nextResult = result
             nextError = error
         } else if let result {
             if result.sourceFingerprint == agentFingerprint {
@@ -548,12 +542,6 @@ public struct ModexInsight: Equatable, Sendable, Identifiable {
         )
     }
 
-    private func valueString(_ value: Double?) -> String {
-        guard let value else {
-            return ""
-        }
-        return String(format: "%.4f", value)
-    }
 }
 
 public enum ModexStableHash {

@@ -158,6 +158,14 @@ final class ModexApplicationController: ObservableObject {
         }
 
         let baseInsight = model.insights.first { $0.id == insight.id } ?? insight
+        startAgentInsight(baseInsight, summary: summary, retryIfChanged: true)
+    }
+
+    private func startAgentInsight(
+        _ baseInsight: ModexInsight,
+        summary: ModexSummary,
+        retryIfChanged: Bool
+    ) {
         let request = agentEvidenceBuilder.request(
             for: baseInsight,
             summary: summary,
@@ -179,11 +187,28 @@ final class ModexApplicationController: ObservableObject {
                 }
                 try? historyStore?.save(agentInsight: result)
                 await MainActor.run {
-                    self?.agentInsightTasks[baseInsight.id] = nil
-                    self?.model.runningAgentInsightIDs.remove(baseInsight.id)
-                    self?.model.agentInsightErrors[baseInsight.id] = nil
-                    self?.model.agentInsightResults[baseInsight.id] = result
-                    self?.model.intelligenceConnectionState = .connected(result.generatedAt)
+                    guard let self else {
+                        return
+                    }
+                    self.agentInsightTasks[baseInsight.id] = nil
+                    self.model.agentInsightErrors[baseInsight.id] = nil
+                    self.model.agentInsightResults[baseInsight.id] = result
+                    self.model.intelligenceConnectionState = .connected(result.generatedAt)
+
+                    if retryIfChanged,
+                       let currentInsight = self.model.insights.first(where: { $0.id == baseInsight.id }),
+                       currentInsight.agentFingerprint != result.sourceFingerprint,
+                       let latestSummary = self.latestSummary
+                    {
+                        self.startAgentInsight(
+                            currentInsight,
+                            summary: latestSummary,
+                            retryIfChanged: false
+                        )
+                        return
+                    }
+
+                    self.model.runningAgentInsightIDs.remove(baseInsight.id)
                 }
             } catch {
                 guard Task.isCancelled == false else {

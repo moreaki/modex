@@ -99,7 +99,7 @@ Suggested columns:
 - Metric/source, such as failed commands, context growth, compactions, slow turns, token economy
 - Thread/project
 - Deterministic reason code
-- Agent status: offline, queued, fresh, stale, failed
+- Analysis status: ready, analyzing, analyzed, update available, failed
 - Confidence, when agent-generated
 - Evidence count
 - Last analyzed
@@ -110,6 +110,7 @@ Metric insight icons in other tables should act as entry points:
 - If the insight already exists, jump to the matching row in `Insights`.
 - If Codex connectivity is green, offer to run or rerun the analysis.
 - If disconnected, show the deterministic reason and a link to Settings.
+- Keep the last successful interpretation visible during an update or after an update failure. Show its own generated timestamp and confidence rather than substituting the thread’s modification time.
 
 The dashboard may show only a small count or short strip of top deterministic signals. It should not become the home for long narrative interpretations.
 

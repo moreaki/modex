@@ -180,10 +180,10 @@ Suggested row fields:
 - confidence
 - evidence ids and counts
 - source sample/log fingerprint
-- created/analyzed/stale timestamps
+- signal-updated and analysis-generated timestamps
 - suggested next action
 
-The table should support filtering by project, metric type, severity, agent status, stale/fresh state, and thread. A metric insight icon in a table cell should jump to the matching Insights row or create one by running analysis.
+The table should support filtering by project, metric type, severity, analysis state, and thread. A metric insight icon in a table cell should jump to the matching Insights row or create one by running analysis.
 
 ## Intelligent Signals
 
@@ -197,7 +197,7 @@ Separate three layers:
 
 Without agent access, Modex should show facts, trends, scores, and terse deterministic reasons. It should not show polished interpretive prose that looks like an analyst read the session.
 
-### Agent-Gated Interpretation
+### Agent-Assisted Interpretation
 
 Narrative insight panels should be optional and gated behind a clear capability check.
 
@@ -214,7 +214,7 @@ Rules:
 - Send compact derived metrics and event summaries, not raw prompt text by default.
 - Ask for structured output with fields such as title, summary, confidence, severity, and evidence ids.
 - Display evidence-backed snippets like metric names, timestamps, session ids, and counts so the user can verify the claim.
-- Mark stale agent interpretations if the underlying thread sample changed after analysis.
+- Mark an update as available only when the material signal fingerprint changes after analysis; ordinary timestamps and unrelated activity must not invalidate useful output.
 - Provide a deterministic fallback: show the underlying facts and reasons if agent access is unavailable.
 - Avoid "solved", "successful", or "useful" claims unless explicit evidence supports them.
 
@@ -266,7 +266,7 @@ The green state means more than "a token exists". It means Modex successfully co
 4. validate the response shape
 5. store the status and timestamp
 
-The test must run asynchronously, must be cancellable, and must never block opening the menu. If a later insight call fails, Modex should degrade to deterministic signals and mark the agent result stale or unavailable.
+The test must run asynchronously, must be cancellable, and must never block opening the menu. If a later insight update fails, Modex should preserve the last successful interpretation, identify the update failure, and keep the deterministic signal available.
 
 UI guidance:
 
@@ -289,14 +289,14 @@ Behavior:
 - Avoid raw prompt text by default. If deeper log text is needed, ask for explicit opt-in or use a privacy setting that clearly allows it.
 - Ask the agent for structured output: likely cause, confidence, evidence ids, suggested next action, and whether the pattern looks transient, environmental, or blocking.
 - Display the result in the detail-window `Insights` table, with evidence links back to the facts. A tiny inline result can be acceptable immediately after clicking, but the durable home is the Insights table.
-- Cache the result against the underlying sample/log fingerprint and mark it stale when the source data changes.
+- Cache the result against a material signal fingerprint. Routine timestamps, healthy command activity, and refresh bookkeeping must not invalidate an interpretation. If material evidence changes during a run, reconcile it automatically once; otherwise show the existing result as having an update available.
 
 Current privacy boundary:
 
 - No raw prompt text is sent.
 - No raw JSONL lines are sent.
 - Failed-command evidence is capped and sanitized to command executable name plus exit code.
-- Generated results are persisted by insight id and metric fingerprint for fast display, and every successful generated run is also appended to a small run history. Stale results remain visible as stale instead of being silently reused.
+- Generated results are persisted by insight id and metric fingerprint for fast display, and every successful generated run is also appended to a small run history. Previous results remain visible while an update runs or fails, with a clear analysis timestamp and confidence.
 - Generated copy must be compact enough for the Insights table: a 2-5 word title, one short diagnosis sentence, and one concrete next step. Internal app states such as `agentUnavailable` or connection labels are not user-facing evidence and must not appear in generated prose.
 
 For failed commands, useful evidence includes command name, exit code, duration, stderr/stdout excerpt policy, repetition count, last occurrence, surrounding model/reasoning/speed, project, thread id, and whether a later command succeeded.

@@ -90,6 +90,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - If an exact value can be wider than its column, constrain, scale, or clip it so it never shadows the next cell.
 - Agent-generated insight copy must fit table rows: short title, one compact diagnosis sentence, and one compact next step. Do not let generated prose become a paragraph.
 - Do not expose internal app states such as `agentUnavailable`, `Needs Codex`, or connection state names as evidence in generated insight text.
+- Agent insight actions must have a legible workflow: ready, analyzing, analyzed, update available, and failed. Preserve the last successful interpretation while refreshing or after an update failure, timestamp the analysis itself, and invalidate it only for material signal changes.
 - Persist successful generated insight runs append-only while also keeping the latest result fast to display.
 - Column title help should explain what the metric means, but the hover itself should be quiet and non-invasive.
 

@@ -1001,6 +1001,121 @@ import Testing
     #expect(insights.contains { $0.kind == .highCacheReuse })
 }
 
+@Test func agentInsightFingerprintIgnoresIncidentalThreadActivity() {
+    let original = ModexInsight(
+        id: "session-failed-commands",
+        kind: .failedCommands,
+        severity: .critical,
+        status: .agentUnavailable,
+        sessionKey: "session",
+        sessionID: "session",
+        threadName: "Investigate failures",
+        projectTitle: "modex",
+        primaryValue: 79,
+        secondaryValue: 2_057,
+        count: 79,
+        evidenceCount: 79,
+        updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+        sourcePath: "/tmp/session.jsonl"
+    )
+    let routineActivity = ModexInsight(
+        id: original.id,
+        kind: original.kind,
+        severity: original.severity,
+        status: original.status,
+        sessionKey: original.sessionKey,
+        sessionID: original.sessionID,
+        threadName: original.threadName,
+        projectTitle: original.projectTitle,
+        primaryValue: 79,
+        secondaryValue: 2_061,
+        count: 79,
+        evidenceCount: 83,
+        updatedAt: Date(timeIntervalSince1970: 1_800_000_120),
+        sourcePath: original.sourcePath
+    )
+    let newFailure = ModexInsight(
+        id: original.id,
+        kind: original.kind,
+        severity: original.severity,
+        status: original.status,
+        sessionKey: original.sessionKey,
+        sessionID: original.sessionID,
+        threadName: original.threadName,
+        projectTitle: original.projectTitle,
+        primaryValue: 80,
+        secondaryValue: 2_062,
+        count: 80,
+        evidenceCount: 80,
+        updatedAt: Date(timeIntervalSince1970: 1_800_000_180),
+        sourcePath: original.sourcePath
+    )
+
+    #expect(routineActivity.agentFingerprint == original.agentFingerprint)
+    #expect(newFailure.agentFingerprint != original.agentFingerprint)
+
+    let previousResult = ModexAgentInsightResult(
+        sourceInsightID: original.id,
+        sourceFingerprint: original.agentFingerprint,
+        generatedAt: Date(timeIntervalSince1970: 1_800_000_060),
+        provider: "local-codex",
+        title: "Command failures persist",
+        summary: "Failures remain concentrated in the latest command samples.",
+        category: "command_health",
+        severity: "warning",
+        confidence: 0.86,
+        suggestedAction: "Inspect the latest failing command before retrying.",
+        evidenceIDs: ["signal:failedCommands", "session:session"]
+    )
+    let updateAvailable = newFailure.applyingAgentState(
+        result: previousResult,
+        isRunning: false,
+        error: nil
+    )
+    #expect(updateAvailable.status == .stale)
+    #expect(updateAvailable.agentResult == previousResult)
+}
+
+@Test func agentInsightStatePreservesTheLastUsefulResult() {
+    let insight = ModexInsight(
+        id: "session-failed-commands",
+        kind: .failedCommands,
+        severity: .critical,
+        status: .agentUnavailable,
+        sessionKey: "session",
+        sessionID: "session",
+        primaryValue: 79,
+        secondaryValue: 2_057,
+        count: 79,
+        evidenceCount: 79
+    )
+    let result = ModexAgentInsightResult(
+        sourceInsightID: insight.id,
+        sourceFingerprint: insight.agentFingerprint,
+        generatedAt: Date(timeIntervalSince1970: 1_800_000_120),
+        provider: "local-codex",
+        title: "Command failures persist",
+        summary: "Failures remain concentrated in the latest command samples.",
+        category: "command_health",
+        severity: "warning",
+        confidence: 0.86,
+        suggestedAction: "Inspect the latest failing command before retrying.",
+        evidenceIDs: ["signal:failedCommands", "session:session"]
+    )
+
+    let generated = insight.applyingAgentState(result: result, isRunning: false, error: nil)
+    let refreshing = insight.applyingAgentState(result: result, isRunning: true, error: nil)
+    let updateFailed = insight.applyingAgentState(result: result, isRunning: false, error: "Timed out")
+
+    #expect(generated.status == .agentGenerated)
+    #expect(generated.agentResult == result)
+    #expect(refreshing.status == .agentRunning)
+    #expect(refreshing.agentResult == result)
+    #expect(updateFailed.status == .agentFailed)
+    #expect(updateFailed.agentResult == result)
+    #expect(updateFailed.agentError == "Timed out")
+}
+
 @Test func agentEvidenceBuilderCreatesMetricsOnlyRequest() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)

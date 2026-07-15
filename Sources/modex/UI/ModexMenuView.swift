@@ -999,7 +999,7 @@ private struct ThreadInsightsTab: View {
             Text(ModexStrings.text("insights.signal"))
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(ModexStrings.text("insights.status"))
-                .frame(width: 98, alignment: .leading)
+                .frame(width: 126, alignment: .leading)
             Text(ModexStrings.text("insights.evidence"))
                 .frame(width: 84, alignment: .trailing)
             Text(ModexStrings.text("insights.updated"))
@@ -1048,25 +1048,22 @@ private struct InsightRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(statusText)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(statusColor)
-                .lineLimit(1)
-                .frame(width: 98, alignment: .leading)
+            statusCell
+                .frame(width: 126, alignment: .leading)
 
             Text("\(insight.evidenceCount)")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(palette.secondaryText)
                 .frame(width: 84, alignment: .trailing)
 
-            UpdatedCell(updatedAt: insight.updatedAt)
+            UpdatedCell(updatedAt: insight.agentResult?.generatedAt ?? insight.updatedAt)
                 .frame(width: 90, alignment: .trailing)
 
             insightAction
                 .frame(width: 76, alignment: .trailing)
         }
         .padding(.horizontal, 12)
-        .frame(minHeight: insight.agentResult == nil ? 62 : 70)
+        .frame(minHeight: insight.agentResult == nil ? 62 : 74)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(palette.surface.opacity(0.24))
@@ -1100,11 +1097,11 @@ private struct InsightRowView: View {
     }
 
     private var detail: String {
-        if let error = insight.agentError {
-            return error
-        }
         if let agentResult = insight.agentResult {
             return agentResult.summary
+        }
+        if let error = insight.agentError {
+            return error
         }
         let thread = insight.threadName ?? insight.projectTitle ?? ModexStrings.text("overview.codexSession")
         switch insight.kind {
@@ -1162,9 +1159,32 @@ private struct InsightRowView: View {
             title,
             detail,
             source,
-            statusText,
+            statusHelp,
+            insight.agentError,
         ]
+        .compactMap(\.self)
         .joined(separator: "\n")
+    }
+
+    private var statusCell: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: statusSymbol)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(statusText)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(statusColor)
+
+            if let confidenceText {
+                Text(confidenceText)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+            }
+        }
+        .help(statusHelp)
     }
 
     private var severityColor: Color {
@@ -1185,7 +1205,7 @@ private struct InsightRowView: View {
         case .deterministic:
             return .teal
         case .agentUnavailable:
-            return ModexTheme.noticeContextColor
+            return canRequestAgentInsights ? palette.accent : ModexTheme.noticeContextColor
         case .agentRunning:
             return palette.accent
         case .agentGenerated:
@@ -1193,25 +1213,72 @@ private struct InsightRowView: View {
         case .agentFailed:
             return ModexTheme.criticalContextColor
         case .stale:
-            return palette.mutedText
+            return ModexTheme.noticeContextColor
         }
     }
 
     private var statusText: String {
         switch insight.status {
         case .deterministic:
-            return ModexStrings.text("insights.statusLocal")
+            return canRequestAgentInsights
+                ? ModexStrings.text("insights.statusReady")
+                : ModexStrings.text("insights.statusLocal")
         case .agentUnavailable:
-            return ModexStrings.text("insights.statusAgent")
+            return canRequestAgentInsights
+                ? ModexStrings.text("insights.statusReady")
+                : ModexStrings.text("insights.statusLocal")
         case .agentRunning:
-            return ModexStrings.text("insights.statusRunning")
+            return ModexStrings.text("insights.statusAnalyzing")
         case .agentGenerated:
-            return ModexStrings.text("insights.statusCodex")
+            return ModexStrings.text("insights.statusAnalyzed")
         case .agentFailed:
-            return ModexStrings.text("insights.statusFailed")
+            return insight.agentResult == nil
+                ? ModexStrings.text("insights.statusFailed")
+                : ModexStrings.text("insights.statusUpdateFailed")
         case .stale:
-            return ModexStrings.text("insights.statusStale")
+            return ModexStrings.text("insights.statusUpdateAvailable")
         }
+    }
+
+    private var statusSymbol: String {
+        switch insight.status {
+        case .deterministic, .agentUnavailable:
+            return canRequestAgentInsights ? "sparkles" : "waveform.path.ecg"
+        case .agentRunning:
+            return "ellipsis.circle"
+        case .agentGenerated:
+            return "checkmark.circle.fill"
+        case .agentFailed:
+            return "exclamationmark.triangle.fill"
+        case .stale:
+            return "arrow.clockwise.circle"
+        }
+    }
+
+    private var statusHelp: String {
+        switch insight.status {
+        case .deterministic, .agentUnavailable:
+            return canRequestAgentInsights
+                ? ModexStrings.text("insights.statusReadyHelp")
+                : ModexStrings.text("insights.statusLocalHelp")
+        case .agentRunning:
+            return ModexStrings.text("insights.statusAnalyzingHelp")
+        case .agentGenerated:
+            return ModexStrings.text("insights.statusAnalyzedHelp")
+        case .agentFailed:
+            return insight.agentResult == nil
+                ? ModexStrings.text("insights.statusFailedHelp")
+                : ModexStrings.text("insights.statusUpdateFailedHelp")
+        case .stale:
+            return ModexStrings.text("insights.statusUpdateAvailableHelp")
+        }
+    }
+
+    private var confidenceText: String? {
+        guard let confidence = insight.agentResult?.confidence else {
+            return nil
+        }
+        return ModexStrings.format("insights.confidence", Int((confidence * 100).rounded()))
     }
 
     @ViewBuilder
@@ -1223,7 +1290,7 @@ private struct InsightRowView: View {
             Button {
                 onRequestAgentInsight(insight)
             } label: {
-                Label(actionTitle, systemImage: "sparkles")
+                Label(actionTitle, systemImage: actionSymbol)
                     .labelStyle(.iconOnly)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(canRequestAgentInsights ? palette.accent : palette.mutedText)
@@ -1238,9 +1305,20 @@ private struct InsightRowView: View {
     }
 
     private var actionTitle: String {
-        insight.agentResult == nil
-            ? ModexStrings.text("insights.analyze")
-            : ModexStrings.text("insights.rerun")
+        switch insight.status {
+        case .stale:
+            return ModexStrings.text("insights.updateAnalysis")
+        case .agentFailed:
+            return ModexStrings.text("insights.retry")
+        default:
+            return insight.agentResult == nil
+                ? ModexStrings.text("insights.analyze")
+                : ModexStrings.text("insights.analyzeAgain")
+        }
+    }
+
+    private var actionSymbol: String {
+        insight.agentResult == nil ? "sparkles" : "arrow.clockwise"
     }
 
     private var actionHelp: String {
