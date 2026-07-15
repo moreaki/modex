@@ -261,7 +261,7 @@
 "dashboard.openDetail" = "Ouvrir le détail";
 "dashboard.rankHint" = "activité la plus récente";
 "dashboard.scanned" = "scannés";
-"dashboard.slowestTurn" = "Tour le plus lent";
+"dashboard.slowestTurn" = "Dernier tour le plus lent";
 "dashboard.title" = "Tableau de bord Modex";
 "dashboard.topThreads" = "Threads récents";
 "dashboard.turnsDetail" = "Tours terminés : %d";
@@ -280,7 +280,7 @@
 "detail.commands" = "Commandes";
 "detail.commandsDetail" = "Fins de commandes shell capturées depuis les journaux de session.";
 "detail.completedTurns" = "Tours terminés";
-"detail.completedTurnsDetail" = "Tours avec mesure du temps de complétion.";
+"detail.completedTurnsDetail" = "Événements de durée des tours terminés pour les fils affichés.";
 "detail.contextGrowthDetail" = "Plus forte hausse du contexte d’entrée entre les deux derniers événements de comptage.";
 "detail.contextGrowthLegend" = "courbe : sauts récents · valeur : dernier";
 "detail.diagnostics" = "Diagnostics";
@@ -292,9 +292,10 @@
 "detail.integrationsDetail" = "%d MCP · %d web";
 "detail.leaders" = "Leaders";
 "detail.medianDuration" = "Durée médiane";
-"detail.medianDurationDetail" = "Durée médiane des tours terminés.";
+"detail.medianDurationDetail" = "Médiane de tous les tours terminés mesurés.";
 "detail.medianTTFT" = "TTFT médian";
-"detail.medianTTFTDetail" = "Temps médian jusqu’au premier token.";
+"detail.medianTTFTDetail" = "Médiane de toutes les mesures du délai jusqu’au premier token.";
+"detail.performanceLegend" = "courbe : tours récents · valeur : dernier";
 "detail.overview" = "Vue d’ensemble";
 "detail.patches" = "Correctifs";
 "detail.patchesDetail" = "%d échecs";
@@ -302,7 +303,7 @@
 "detail.reasoningShare" = "Part raisonnement";
 "detail.reasoningShareDetail" = "Part des tokens de raisonnement dans tous les tokens de sortie.";
 "detail.searchPlaceholder" = "Rechercher des threads";
-"detail.slowestTurnDetail" = "Dernier tour terminé le plus lent.";
+"detail.slowestTurnDetail" = "Dernier tour terminé le plus lent parmi les fils affichés.";
 "detail.title" = "Détail du thread";
 "detail.tokens" = "Tokens";
 "detail.tokensCachedDetail" = "Ratio d’entrée en cache depuis l’utilisation totale des tokens.";

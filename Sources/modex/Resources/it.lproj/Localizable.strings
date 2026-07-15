@@ -261,7 +261,7 @@
 "dashboard.openDetail" = "Apri dettaglio";
 "dashboard.rankHint" = "attività più recente";
 "dashboard.scanned" = "scansionati";
-"dashboard.slowestTurn" = "Turno più lento";
+"dashboard.slowestTurn" = "Ultimo turno più lento";
 "dashboard.title" = "Dashboard Modex";
 "dashboard.topThreads" = "Thread recenti";
 "dashboard.turnsDetail" = "Turni completati: %d";
@@ -280,7 +280,7 @@
 "detail.commands" = "Comandi";
 "detail.commandsDetail" = "Completamenti di comandi shell catturati dai log di sessione.";
 "detail.completedTurns" = "Turni completati";
-"detail.completedTurnsDetail" = "Turni con tempi di completamento.";
+"detail.completedTurnsDetail" = "Eventi di durata dei turni completati nei thread mostrati.";
 "detail.contextGrowthDetail" = "Maggiore aumento del contesto di input tra gli ultimi due eventi di conteggio.";
 "detail.contextGrowthLegend" = "linea: salti recenti · valore: ultimo";
 "detail.diagnostics" = "Diagnostica";
@@ -292,9 +292,10 @@
 "detail.integrationsDetail" = "%d MCP · %d web";
 "detail.leaders" = "Leader";
 "detail.medianDuration" = "Durata mediana";
-"detail.medianDurationDetail" = "Durata mediana dei turni completati.";
+"detail.medianDurationDetail" = "Mediana di tutti i turni completati misurati.";
 "detail.medianTTFT" = "TTFT mediano";
-"detail.medianTTFTDetail" = "Tempo mediano al primo token.";
+"detail.medianTTFTDetail" = "Mediana di tutte le misure del tempo al primo token.";
+"detail.performanceLegend" = "linea: turni recenti · valore: ultimo";
 "detail.overview" = "Panoramica";
 "detail.patches" = "Patch";
 "detail.patchesDetail" = "%d fallite";
@@ -302,7 +303,7 @@
 "detail.reasoningShare" = "Quota reasoning";
 "detail.reasoningShareDetail" = "Quota di output reasoning sul totale dei token di output.";
 "detail.searchPlaceholder" = "Cerca thread";
-"detail.slowestTurnDetail" = "Ultimo turno completato più lento.";
+"detail.slowestTurnDetail" = "Ultimo turno completato più lento tra i thread mostrati.";
 "detail.title" = "Dettaglio thread";
 "detail.tokens" = "Token";
 "detail.tokensCachedDetail" = "Rapporto input in cache dall’uso totale dei token.";

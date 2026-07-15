@@ -261,7 +261,7 @@
 "dashboard.openDetail" = "Detail öffnen";
 "dashboard.rankHint" = "zuletzt aktiv";
 "dashboard.scanned" = "gescannt";
-"dashboard.slowestTurn" = "Langsamster Turn";
+"dashboard.slowestTurn" = "Langsamster letzter Turn";
 "dashboard.title" = "Modex-Dashboard";
 "dashboard.topThreads" = "Zuletzt aktive Threads";
 "dashboard.turnsDetail" = "Abgeschlossene Turns: %d";
@@ -280,7 +280,7 @@
 "detail.commands" = "Befehle";
 "detail.commandsDetail" = "Shell-Befehlsabschlüsse aus Sitzungsprotokollen.";
 "detail.completedTurns" = "Abgeschlossene Turns";
-"detail.completedTurnsDetail" = "Turns mit Abschlusszeitmessung.";
+"detail.completedTurnsDetail" = "Abschlusszeit-Ereignisse aller angezeigten Threads.";
 "detail.contextGrowthDetail" = "Größte Eingabekontext-Zunahme zwischen den letzten beiden Token-Zählereignissen.";
 "detail.contextGrowthLegend" = "Linie: letzte Sprünge · Wert: neuester";
 "detail.diagnostics" = "Diagnose";
@@ -292,9 +292,10 @@
 "detail.integrationsDetail" = "%d MCP · %d Web";
 "detail.leaders" = "Spitzenwerte";
 "detail.medianDuration" = "Median-Dauer";
-"detail.medianDurationDetail" = "Median-Dauer abgeschlossener Turns.";
+"detail.medianDurationDetail" = "Median über alle gemessenen abgeschlossenen Turns.";
 "detail.medianTTFT" = "Median-TTFT";
-"detail.medianTTFTDetail" = "Median-Zeit bis zum ersten Token.";
+"detail.medianTTFTDetail" = "Median über alle gemessenen Zeiten bis zum ersten Token.";
+"detail.performanceLegend" = "Linie: letzte Turns · Wert: neuester";
 "detail.overview" = "Übersicht";
 "detail.patches" = "Patches";
 "detail.patchesDetail" = "%d fehlgeschlagen";
@@ -302,7 +303,7 @@
 "detail.reasoningShare" = "Reasoning-Anteil";
 "detail.reasoningShareDetail" = "Anteil der Reasoning-Ausgabe an allen Ausgabe-Tokens.";
 "detail.searchPlaceholder" = "Threads suchen";
-"detail.slowestTurnDetail" = "Langsamster zuletzt abgeschlossener Turn.";
+"detail.slowestTurnDetail" = "Langsamster letzter abgeschlossener Turn der angezeigten Threads.";
 "detail.title" = "Thread-Detail";
 "detail.tokens" = "Tokens";
 "detail.tokensCachedDetail" = "Gecachter Eingabeanteil aus der gesamten Token-Nutzung.";

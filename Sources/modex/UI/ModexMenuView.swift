@@ -504,7 +504,8 @@ struct ModexThreadDetailWindow: View {
             ThreadMetricCardsTab(
                 sessions: filteredSessions,
                 cards: performanceCards,
-                leaders: performanceLeaders
+                leaders: performanceLeaders,
+                leaderLegend: ModexStrings.text("detail.performanceLegend")
             )
         case .activity:
             ThreadMetricCardsTab(
@@ -543,10 +544,12 @@ struct ModexThreadDetailWindow: View {
     }
 
     private var performanceCards: [ThreadMetricCard] {
-        [
-            ThreadMetricCard(title: ModexStrings.text("detail.completedTurns"), value: "\(filteredSessions.reduce(0) { $0 + $1.completedTurns })", detail: ModexStrings.text("detail.completedTurnsDetail")),
-            ThreadMetricCard(title: ModexStrings.text("detail.medianDuration"), value: millisecondsText(median(filteredSessions.compactMap(\.medianTurnDurationMilliseconds))), detail: ModexStrings.text("detail.medianDurationDetail")),
-            ThreadMetricCard(title: ModexStrings.text("detail.medianTTFT"), value: millisecondsText(median(filteredSessions.compactMap(\.medianTimeToFirstTokenMilliseconds))), detail: ModexStrings.text("detail.medianTTFTDetail")),
+        let turnDurations = filteredSessions.flatMap(\.turnDurationsMilliseconds)
+        let firstTokenDurations = filteredSessions.flatMap(\.timeToFirstTokenMilliseconds)
+        return [
+            ThreadMetricCard(title: ModexStrings.text("detail.completedTurns"), value: "\(turnDurations.count)", detail: ModexStrings.text("detail.completedTurnsDetail")),
+            ThreadMetricCard(title: ModexStrings.text("detail.medianDuration"), value: millisecondsText(median(turnDurations)), detail: ModexStrings.text("detail.medianDurationDetail")),
+            ThreadMetricCard(title: ModexStrings.text("detail.medianTTFT"), value: millisecondsText(median(firstTokenDurations)), detail: ModexStrings.text("detail.medianTTFTDetail")),
             ThreadMetricCard(title: ModexStrings.text("dashboard.slowestTurn"), value: millisecondsText(filteredSessions.compactMap(\.lastTurnDurationMilliseconds).max()), detail: ModexStrings.text("detail.slowestTurnDetail")),
         ]
     }
@@ -608,7 +611,7 @@ struct ModexThreadDetailWindow: View {
                 ThreadLeaderRow(
                     session: $0,
                     value: millisecondsText($0.lastTurnDurationMilliseconds),
-                    trendValues: durationTrendValues(for: $0, history: model.history)
+                    trendValues: durationTrendValues(for: $0)
                 )
             }
     }
@@ -4996,15 +4999,8 @@ func averageTurnTrendValues(
 
 func durationTrendValues(
     for session: SessionSnapshot,
-    history: ModexHistorySnapshot?,
     limit: Int = 14
 ) -> [Double] {
-    let historyValues = history?.samples(for: session)
-        .compactMap(\.lastTurnDurationMilliseconds)
-        .map(Double.init) ?? []
-    if historyValues.count > 1 {
-        return Array(historyValues.suffix(limit))
-    }
     return Array(session.turnDurationsMilliseconds.map(Double.init).suffix(limit))
 }
 

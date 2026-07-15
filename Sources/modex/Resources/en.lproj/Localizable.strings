@@ -261,7 +261,7 @@
 "dashboard.openDetail" = "Open Detail";
 "dashboard.rankHint" = "most recently active";
 "dashboard.scanned" = "scanned";
-"dashboard.slowestTurn" = "Slowest turn";
+"dashboard.slowestTurn" = "Slowest latest turn";
 "dashboard.title" = "Modex Dashboard";
 "dashboard.topThreads" = "Recent Threads";
 "dashboard.turnsDetail" = "Completed turns: %d";
@@ -280,7 +280,7 @@
 "detail.commands" = "Commands";
 "detail.commandsDetail" = "Shell command completions captured from session logs.";
 "detail.completedTurns" = "Completed turns";
-"detail.completedTurnsDetail" = "Turns with completion timing.";
+"detail.completedTurnsDetail" = "Completed-turn timing events across displayed threads.";
 "detail.contextGrowthDetail" = "Largest input-context increase between the latest two token-count events.";
 "detail.contextGrowthLegend" = "line: recent jumps · value: latest";
 "detail.diagnostics" = "Diagnostics";
@@ -292,9 +292,10 @@
 "detail.integrationsDetail" = "%d MCP · %d web";
 "detail.leaders" = "Leaders";
 "detail.medianDuration" = "Median duration";
-"detail.medianDurationDetail" = "Median completed-turn duration.";
+"detail.medianDurationDetail" = "Median across all measured completed turns.";
 "detail.medianTTFT" = "Median TTFT";
-"detail.medianTTFTDetail" = "Median time to first token.";
+"detail.medianTTFTDetail" = "Median across all measured time-to-first-token events.";
+"detail.performanceLegend" = "line: recent turns · value: latest";
 "detail.overview" = "Overview";
 "detail.patches" = "Patches";
 "detail.patchesDetail" = "%d failed";
@@ -302,7 +303,7 @@
 "detail.reasoningShare" = "Reasoning share";
 "detail.reasoningShareDetail" = "Reasoning output share of total output tokens.";
 "detail.searchPlaceholder" = "Search threads";
-"detail.slowestTurnDetail" = "Slowest latest completed turn.";
+"detail.slowestTurnDetail" = "Slowest latest completed turn among displayed threads.";
 "detail.title" = "Thread Detail";
 "detail.tokens" = "Tokens";
 "detail.tokensCachedDetail" = "Cached input ratio from total token usage.";
