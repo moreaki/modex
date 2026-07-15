@@ -785,10 +785,7 @@ public final class ModexHistoryStore: @unchecked Sendable {
     }
 
     private func projectTitle(for session: SessionSnapshot) -> String? {
-        guard let workingDirectory = session.workingDirectory, workingDirectory.isEmpty == false else {
-            return nil
-        }
-        return URL(fileURLWithPath: workingDirectory).lastPathComponent
+        CodexProjectIdentity.resolve(for: session).suggestedName
     }
 
     private func error(_ operation: String) -> ModexHistoryStoreError {

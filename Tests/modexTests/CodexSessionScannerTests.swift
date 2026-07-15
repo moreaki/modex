@@ -128,7 +128,7 @@ import Testing
 
     let fileURL = sessionsDirectory.appendingPathComponent("current.jsonl")
     let jsonl = """
-    {"timestamp":"2026-07-15T09:00:00.000Z","type":"session_meta","payload":{"id":"current","cwd":"/tmp/current","cli_version":"0.144.3","model_provider":"openai","source":"cli","agent_nickname":"Ada","agent_role":"reviewer","agent_path":"/root/review","parent_thread_id":"parent"}}
+    {"timestamp":"2026-07-15T09:00:00.000Z","type":"session_meta","payload":{"id":"current","cwd":"/tmp/current","cli_version":"0.144.3","model_provider":"openai","source":"cli","agent_nickname":"Ada","agent_role":"reviewer","agent_path":"/root/review","parent_thread_id":"parent","git":{"repository_url":"git@github.com:openai/current.git"}}}
     {"timestamp":"2026-07-15T09:01:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.6-sol","reasoning_effort":"xhigh","service_tier":"fast","personality":"pragmatic","collaboration_mode":{"mode":"default","settings":{}}}}}
     {"timestamp":"2026-07-15T09:02:00.000Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-exec","name":"exec","input":"{}"}}
     {"timestamp":"2026-07-15T09:03:00.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-exec","output":[{"type":"text","text":"Script failed\\nWall time 0.1 seconds"}]}}
@@ -156,6 +156,7 @@ import Testing
     #expect(session.agentRole == "reviewer")
     #expect(session.agentPath == "/root/review")
     #expect(session.parentThreadID == "parent")
+    #expect(session.gitOriginURL == "git@github.com:openai/current.git")
     #expect(session.model == "gpt-5.6-sol")
     #expect(session.reasoningEffort == "xhigh")
     #expect(session.serviceTier == "fast")
@@ -172,6 +173,52 @@ import Testing
     #expect(session.subagentActivityEvents == 1)
     #expect(session.abortedTurnEvents == 1)
     #expect(session.compactionEvents == 2)
+}
+
+@Test func projectIdentityUsesRepositoryOriginAcrossPathsAndProtocols() {
+    var rootSession = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/root.jsonl"))
+    rootSession.workingDirectory = "/Users/alice/Dev/sigma-frontend"
+    rootSession.gitOriginURL = "git@github.com:convertic-software/sigma-frontend.git"
+
+    var nestedSession = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/nested.jsonl"))
+    nestedSession.workingDirectory = "/Users/alice/Dev/sigma-frontend/.angular"
+    nestedSession.gitOriginURL = "https://github.com/convertic-software/sigma-frontend.git/"
+
+    let rootIdentity = CodexProjectIdentity.resolve(for: rootSession)
+    let nestedIdentity = CodexProjectIdentity.resolve(for: nestedSession)
+
+    #expect(rootIdentity.kind == .repository)
+    #expect(rootIdentity.id == nestedIdentity.id)
+    #expect(rootIdentity.suggestedName == "sigma-frontend")
+}
+
+@Test func projectIdentityCollapsesDatedCodexTaskWorkspaces() {
+    let first = CodexProjectIdentity.resolve(
+        workingDirectory: "/Users/alice/Documents/Codex/2026-07-08/kann"
+    )
+    let second = CodexProjectIdentity.resolve(
+        workingDirectory: "/Users/alice/Documents/Codex/2026-07-15/kan"
+    )
+    let ordinaryDirectory = CodexProjectIdentity.resolve(
+        workingDirectory: "/Users/alice/Dev/kan"
+    )
+
+    #expect(first.kind == .codexTasks)
+    #expect(first.id == second.id)
+    #expect(first.id != ordinaryDirectory.id)
+    #expect(ordinaryDirectory.kind == .directory)
+}
+
+@Test func projectIdentityTreatsStandardUserLocationsAsCodexTasks() {
+    let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+    let homeIdentity = CodexProjectIdentity.resolve(workingDirectory: home.path)
+    let downloadsIdentity = CodexProjectIdentity.resolve(
+        workingDirectory: home.appendingPathComponent("Downloads", isDirectory: true).path
+    )
+
+    #expect(homeIdentity.kind == .codexTasks)
+    #expect(downloadsIdentity.kind == .codexTasks)
+    #expect(homeIdentity.id == downloadsIdentity.id)
 }
 
 @Test func stateDatabaseIndexesAndEnrichesRecentThreads() async throws {
@@ -200,6 +247,7 @@ import Testing
                 path: activeURL.path,
                 recencyMilliseconds: 2_000,
                 title: "Indexed active thread",
+                gitOriginURL: "git@github.com:openai/active.git",
                 archived: false
             ),
             StateThreadFixture(
@@ -207,6 +255,7 @@ import Testing
                 path: archivedURL.path,
                 recencyMilliseconds: 3_000,
                 title: "Indexed archive",
+                gitOriginURL: nil,
                 archived: true
             ),
         ]
@@ -223,6 +272,7 @@ import Testing
     #expect(active.reasoningEffort == "high")
     #expect(active.source == "vscode")
     #expect(active.cliVersion == "0.144.3")
+    #expect(active.gitOriginURL == "git@github.com:openai/active.git")
     #expect(active.isArchived == false)
 
     let allResult = try await CodexSessionScanner(
@@ -845,6 +895,7 @@ private struct StateThreadFixture {
     let path: String
     let recencyMilliseconds: Int64
     let title: String
+    let gitOriginURL: String?
     let archived: Bool
 }
 
@@ -890,6 +941,7 @@ private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFix
         agent_path TEXT,
         parent_thread_id TEXT,
         thread_source TEXT,
+        git_origin_url TEXT,
         archived INTEGER NOT NULL
     );
     """
@@ -898,6 +950,7 @@ private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFix
     }
 
     for row in rows {
+        let gitOriginSQL = row.gitOriginURL.map { "'\(sqlEscaped($0))'" } ?? "NULL"
         let sql = """
         INSERT INTO threads VALUES (
             '\(sqlEscaped(row.id))',
@@ -915,6 +968,7 @@ private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFix
             NULL,
             NULL,
             'user',
+            \(gitOriginSQL),
             \(row.archived ? 1 : 0)
         );
         """

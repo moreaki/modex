@@ -108,6 +108,7 @@ public struct SessionSnapshot: Equatable, Sendable {
     public var sessionID: String?
     public var threadName: String?
     public var workingDirectory: String?
+    public var gitOriginURL: String?
     public var model: String?
     public var reasoningEffort: String?
     public var serviceTier: String?
@@ -147,6 +148,7 @@ public struct SessionSnapshot: Equatable, Sendable {
         sessionID = nil
         threadName = nil
         workingDirectory = nil
+        gitOriginURL = nil
         model = nil
         reasoningEffort = nil
         serviceTier = nil

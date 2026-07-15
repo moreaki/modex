@@ -229,6 +229,7 @@
 "overview.updated" = "Aggiornato %@";
 
 "projectGroup.collapseHelp" = "Comprimi il progetto %@";
+"projectGroup.codexTasks" = "Attività Codex";
 "projectGroup.expandHelp" = "Espandi il progetto %@";
 "projectGroup.threadCountOne" = "1 thread";
 "projectGroup.threadCountMany" = "%d thread";

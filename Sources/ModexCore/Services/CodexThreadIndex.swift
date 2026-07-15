@@ -6,6 +6,7 @@ struct CodexThreadMetadata: Sendable {
     let fileURL: URL
     let threadName: String?
     let workingDirectory: String?
+    let gitOriginURL: String?
     let model: String?
     let reasoningEffort: String?
     let source: String?
@@ -125,6 +126,7 @@ enum CodexThreadIndex {
             \(schema.recencyExpression),
             \(schema.select("title")),
             \(schema.select("cwd")),
+            \(schema.select("git_origin_url")),
             \(schema.select("model")),
             \(schema.select("reasoning_effort")),
             \(schema.select("source")),
@@ -188,17 +190,18 @@ enum CodexThreadIndex {
                     fileURL: fileURL,
                     threadName: text(statement, at: 3),
                     workingDirectory: text(statement, at: 4),
-                    model: text(statement, at: 5),
-                    reasoningEffort: text(statement, at: 6),
-                    source: text(statement, at: 7),
-                    cliVersion: text(statement, at: 8),
-                    modelProvider: text(statement, at: 9),
-                    agentNickname: text(statement, at: 10),
-                    agentRole: text(statement, at: 11),
-                    agentPath: text(statement, at: 12),
-                    parentThreadID: text(statement, at: 13),
-                    threadSource: text(statement, at: 14),
-                    archived: sqlite3_column_int(statement, 15) != 0,
+                    gitOriginURL: text(statement, at: 5),
+                    model: text(statement, at: 6),
+                    reasoningEffort: text(statement, at: 7),
+                    source: text(statement, at: 8),
+                    cliVersion: text(statement, at: 9),
+                    modelProvider: text(statement, at: 10),
+                    agentNickname: text(statement, at: 11),
+                    agentRole: text(statement, at: 12),
+                    agentPath: text(statement, at: 13),
+                    parentThreadID: text(statement, at: 14),
+                    threadSource: text(statement, at: 15),
+                    archived: sqlite3_column_int(statement, 16) != 0,
                     recencyDate: recencyDate
                 )
             )

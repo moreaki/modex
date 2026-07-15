@@ -468,6 +468,7 @@ public final class CodexSessionScanner {
         snapshot.sessionID = snapshot.sessionID ?? metadata.sessionID
         snapshot.threadName = metadata.threadName ?? snapshot.threadName
         snapshot.workingDirectory = snapshot.workingDirectory ?? metadata.workingDirectory
+        snapshot.gitOriginURL = metadata.gitOriginURL ?? snapshot.gitOriginURL
         snapshot.model = snapshot.model ?? metadata.model
         snapshot.reasoningEffort = snapshot.reasoningEffort ?? metadata.reasoningEffort
         snapshot.source = metadata.source ?? snapshot.source
@@ -1030,6 +1031,8 @@ private final class FastCodexJSONLParser {
                 ?? FastJSONValue.string(after: FastJSONPattern.id, in: line)
                 ?? snapshot.sessionID
             snapshot.workingDirectory = FastJSONValue.string(after: FastJSONPattern.cwd, in: line) ?? snapshot.workingDirectory
+            snapshot.gitOriginURL = nonEmpty(FastJSONValue.string(after: FastJSONPattern.repositoryURL, in: line))
+                ?? snapshot.gitOriginURL
             snapshot.cliVersion = nonEmpty(FastJSONValue.string(after: FastJSONPattern.cliVersion, in: line))
                 ?? snapshot.cliVersion
             snapshot.modelProvider = nonEmpty(FastJSONValue.string(after: FastJSONPattern.modelProvider, in: line))
@@ -1915,6 +1918,7 @@ private enum FastJSONPattern {
     static let id = Array("\"id\":\"".utf8)
     static let threadName = Array("\"thread_name\":\"".utf8)
     static let cwd = Array("\"cwd\":\"".utf8)
+    static let repositoryURL = Array("\"repository_url\":\"".utf8)
     static let model = Array("\"model\":\"".utf8)
     static let modelProvider = Array("\"model_provider\":\"".utf8)
     static let reasoningEffort = Array("\"reasoning_effort\":\"".utf8)

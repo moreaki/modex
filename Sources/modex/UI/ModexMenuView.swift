@@ -296,7 +296,7 @@ struct ModexThreadDetailWindow: View {
                 return false
             }
             if selectedProject.id != ThreadProjectFilter.all.id,
-               projectTitle(for: session) != selectedProject.title
+               projectPresentation(for: session).id != selectedProject.id
             {
                 return false
             }
@@ -317,8 +317,14 @@ struct ModexThreadDetailWindow: View {
     }
 
     private var projectFilters: [ThreadProjectFilter] {
-        let titles = Set(sessions.map(projectTitle(for:)))
-        return [.all] + titles.sorted().map { ThreadProjectFilter(id: $0, title: $0) }
+        var filtersByID: [String: ThreadProjectFilter] = [:]
+        for session in sessions {
+            let project = projectPresentation(for: session)
+            filtersByID[project.id] = ThreadProjectFilter(id: project.id, title: project.title)
+        }
+        return [.all] + filtersByID.values.sorted {
+            $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
     }
 
     private var detailHeader: some View {
@@ -644,6 +650,11 @@ private enum ThreadDetailTab: String, CaseIterable, Identifiable {
 private struct ThreadProjectFilter: Hashable, Identifiable {
     static let all = ThreadProjectFilter(id: "__all__", title: ModexStrings.text("detail.allProjects"))
 
+    let id: String
+    let title: String
+}
+
+private struct ProjectPresentation {
     let id: String
     let title: String
 }
@@ -4899,12 +4910,13 @@ private func groupedSessions(_ sessions: [SessionSnapshot]) -> [SessionGroup] {
     var groups: [String: SessionGroupBuilder] = [:]
 
     for (index, session) in sessions.enumerated() {
-        let id = session.workingDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? "__codex__"
+        let project = projectPresentation(for: session)
+        let id = project.id
         if groups[id] == nil {
             order.append(id)
             groups[id] = SessionGroupBuilder(
                 id: id,
-                title: projectTitle(for: session),
+                title: project.title,
                 sessions: []
             )
         }
@@ -4920,12 +4932,21 @@ private func groupedSessions(_ sessions: [SessionSnapshot]) -> [SessionGroup] {
 }
 
 private func projectTitle(for session: SessionSnapshot) -> String {
-    guard let workingDirectory = session.workingDirectory, workingDirectory.isEmpty == false else {
-        return ModexStrings.text("overview.codexSession")
-    }
+    projectPresentation(for: session).title
+}
 
-    let title = URL(fileURLWithPath: workingDirectory).lastPathComponent
-    return title.isEmpty ? workingDirectory : title
+private func projectPresentation(for session: SessionSnapshot) -> ProjectPresentation {
+    let identity = CodexProjectIdentity.resolve(for: session)
+    let title: String
+    switch identity.kind {
+    case .codexTasks:
+        title = ModexStrings.text("projectGroup.codexTasks")
+    case .unknown:
+        title = ModexStrings.text("overview.codexSession")
+    case .repository, .directory:
+        title = identity.suggestedName ?? ModexStrings.text("overview.codexSession")
+    }
+    return ProjectPresentation(id: identity.id, title: title)
 }
 
 func formatDuration(_ seconds: Double) -> String {

@@ -283,10 +283,7 @@ public struct ModexAgentInsightEvidenceBuilder: Sendable {
     }
 
     private func projectTitle(for session: SessionSnapshot) -> String? {
-        guard let workingDirectory = session.workingDirectory, workingDirectory.isEmpty == false else {
-            return nil
-        }
-        return URL(fileURLWithPath: workingDirectory).lastPathComponent
+        CodexProjectIdentity.resolve(for: session).suggestedName
     }
 }
 
