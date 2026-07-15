@@ -142,6 +142,8 @@ public struct ModexSummaryReportFormatter: Sendable {
     public func lines(for summary: ModexSummary) -> [String] {
         var lines = [
             "sessions: \(summary.sessionsScanned)",
+            "project threads: \(summary.sessions.filter { CodexThreadScope.resolve(for: $0) == .project }.count)",
+            "task threads: \(summary.sessions.filter { CodexThreadScope.resolve(for: $0) == .task }.count)",
             "token events: \(summary.tokenEvents)",
             "total tokens: \(summary.totalTokens)",
             "median turn tokens: \(summary.medianTurnTokens)",
@@ -166,6 +168,7 @@ public struct ModexSummaryReportFormatter: Sendable {
                 "scan discovery: \(metrics.discoveryMode)",
                 "scan metadata: \(metrics.metadataHits)/\(metrics.filesSelected)",
                 "scan session index read: \(formatBytes(metrics.sessionIndexBytesRead))",
+                "scan sidebar state: \(metrics.sidebarStateCacheHit ? "cached" : formatBytes(metrics.sidebarStateBytesRead))",
                 "scan concurrency: \(metrics.maximumConcurrentParses)/\(metrics.configuredMaximumConcurrentParses)",
                 "scan chunk size: \(formatBytes(metrics.chunkSizeBytes))",
                 "scan line buffer cap: \(formatBytes(metrics.maximumLineBufferBytes))",

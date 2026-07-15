@@ -103,6 +103,7 @@
 "instrumentation.averageMemory" = "Ø Speicher";
 "instrumentation.averageNote" = "Mittelwerte pro Scan aus %d gemessenen Scans der letzten Stunde; die Speicherspitze ist der größte Abschlusswert.";
 "instrumentation.cache" = "Cache";
+"instrumentation.cacheHitValue" = "Im Cache";
 "instrumentation.cacheEntries" = "Einträge";
 "instrumentation.cacheOff" = "Aus";
 "instrumentation.cacheSaved" = "Gespart";
@@ -126,6 +127,7 @@
 "instrumentation.help.averageWakeups" = "Mittlere Leerlauf- / Interrupt-Aufweckvorgänge pro gemessenem Scan der letzten Stunde.";
 "instrumentation.help.cacheEntries" = "Ergebnisse von Sitzungsdateien, die derzeit im Scan-Cache im Arbeitsspeicher liegen.";
 "instrumentation.help.cacheSaved" = "Vermiedene Bytes, weil unveränderte Dateien vollständig aus dem Scan-Cache kamen.";
+"instrumentation.help.sidebarState" = "Codex-Liste projektloser Threads zur Trennung von Projekten und Aufgaben; zeigt gelesene Bytes oder einen Cache-Treffer.";
 "instrumentation.help.chunk" = "Pro Streaming-Lesevorgang angeforderte Bytes; größere Chunks tauschen temporären Speicher gegen weniger Lesezugriffe.";
 "instrumentation.help.contextSwitches" = "Freiwillige / unfreiwillige Scheduler-Kontextwechsel während dieses Lesevorgangs.";
 "instrumentation.help.cpu" = "Prozess-CPU-Zeit dieses Lesevorgangs · mittlere CPU-Last, die bei parallelem Parsen über 100 % liegen kann.";
@@ -168,6 +170,7 @@
 "instrumentation.resources" = "Ressourcen";
 "instrumentation.scanActive" = "Scan aktiv";
 "instrumentation.sessionFallback" = "Sitzung";
+"instrumentation.sidebarState" = "Seitenleistenstatus";
 "instrumentation.slowestFiles" = "Langsamste Dateien";
 "instrumentation.status" = "Status";
 "instrumentation.title" = "Letzter Lesevorgang";
@@ -235,6 +238,11 @@
 "projectGroup.threadCountMany" = "%d Threads";
 "projectGroup.tokenTotal" = "%@ Tokens";
 
+"threadScope.projectThreads" = "Projekt-Threads";
+"threadScope.projects" = "Projekte";
+"threadScope.taskThreads" = "Aufgaben-Threads";
+"threadScope.tasks" = "Aufgaben";
+
 "dashboard.threads" = "Threads";
 "dashboard.activity" = "Aktivität";
 "dashboard.cachedInput" = "Gecachte Eingabe";
@@ -266,6 +274,7 @@
 "detail.agentActivity" = "Agent-Aktivität";
 "detail.agentActivityDetail" = "Von Codex erfasste Lebenszyklusereignisse von Unteragenten.";
 "detail.allProjects" = "Alle Projekte";
+"detail.allTasks" = "Alle Aufgaben";
 "detail.cacheSaved" = "%@ durch Cache gespart";
 "detail.chunkLine" = "Chunk %@, Zeile %@";
 "detail.commands" = "Befehle";

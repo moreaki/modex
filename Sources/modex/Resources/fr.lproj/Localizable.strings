@@ -103,6 +103,7 @@
 "instrumentation.averageMemory" = "Mémoire moy.";
 "instrumentation.averageNote" = "Moyennes par scan sur %d scans mesurés durant la dernière heure ; le pic mémoire est la plus forte valeur finale.";
 "instrumentation.cache" = "Cache";
+"instrumentation.cacheHitValue" = "En cache";
 "instrumentation.cacheEntries" = "Entrées";
 "instrumentation.cacheOff" = "Désactivé";
 "instrumentation.cacheSaved" = "Économisé";
@@ -126,6 +127,7 @@
 "instrumentation.help.averageWakeups" = "Moyenne des réveils d’inactivité / d’interruption par scan mesuré durant la dernière heure.";
 "instrumentation.help.cacheEntries" = "Résultats de fichiers de session actuellement conservés dans le cache d’analyse en mémoire.";
 "instrumentation.help.cacheSaved" = "Octets évités parce que les fichiers inchangés provenaient entièrement du cache d’analyse.";
+"instrumentation.help.sidebarState" = "Liste Codex des threads sans projet utilisée pour séparer Projets et Tâches ; affiche les octets lus ou un accès au cache.";
 "instrumentation.help.chunk" = "Octets demandés par lecture en flux ; des blocs plus grands utilisent plus de mémoire temporaire mais réduisent les lectures.";
 "instrumentation.help.contextSwitches" = "Commutations volontaires / involontaires de l’ordonnanceur pendant cette lecture.";
 "instrumentation.help.cpu" = "Temps CPU du processus pour cette lecture · charge CPU moyenne, qui peut dépasser 100 % avec l’analyse parallèle.";
@@ -168,6 +170,7 @@
 "instrumentation.resources" = "Ressources";
 "instrumentation.scanActive" = "Scan actif";
 "instrumentation.sessionFallback" = "session";
+"instrumentation.sidebarState" = "État de la barre latérale";
 "instrumentation.slowestFiles" = "Fichiers les plus lents";
 "instrumentation.status" = "État";
 "instrumentation.title" = "Dernière lecture";
@@ -235,6 +238,11 @@
 "projectGroup.threadCountMany" = "%d threads";
 "projectGroup.tokenTotal" = "%@ tokens";
 
+"threadScope.projectThreads" = "Threads de projet";
+"threadScope.projects" = "Projets";
+"threadScope.taskThreads" = "Threads de tâche";
+"threadScope.tasks" = "Tâches";
+
 "dashboard.threads" = "Threads";
 "dashboard.activity" = "Activité";
 "dashboard.cachedInput" = "Entrée en cache";
@@ -266,6 +274,7 @@
 "detail.agentActivity" = "Activité des agents";
 "detail.agentActivityDetail" = "Événements de cycle de vie des sous-agents enregistrés par Codex.";
 "detail.allProjects" = "Tous les projets";
+"detail.allTasks" = "Toutes les tâches";
 "detail.cacheSaved" = "%@ économisés par le cache";
 "detail.chunkLine" = "bloc %@, ligne %@";
 "detail.commands" = "Commandes";

@@ -272,6 +272,35 @@ import Testing
     #expect(homeIdentity.id == downloadsIdentity.id)
 }
 
+@Test func sidebarStateReaderStreamsAndCachesProjectlessThreadIDs() throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
+    try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let padding = String(repeating: "x", count: 70_000)
+    let state = "{\"padding\":\"\(padding)\",\"projectless-thread-ids\":[\"task-1\",\"task-2\"]}"
+    try state.write(
+        to: codexHome.appendingPathComponent(".codex-global-state.json"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let firstRead = try #require(CodexSidebarStateReader.read(codexHome: codexHome))
+    #expect(firstRead.state.scope(for: "task-1") == .task)
+    #expect(firstRead.state.scope(for: "project-1") == .project)
+    #expect(firstRead.bytesRead > 64 * 1_024)
+    #expect(firstRead.cacheHit == false)
+
+    let cachedRead = try #require(CodexSidebarStateReader.read(codexHome: codexHome))
+    #expect(cachedRead.state.projectlessThreadIDs == firstRead.state.projectlessThreadIDs)
+    #expect(cachedRead.bytesRead == 0)
+    #expect(cachedRead.cacheHit)
+}
+
 @Test func stateDatabaseIndexesAndEnrichesRecentThreads() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -311,6 +340,7 @@ import Testing
             ),
         ]
     )
+    try writeCodexSidebarState(projectlessThreadIDs: ["active"], to: codexHome)
 
     let activeResult = try await CodexSessionScanner(codexHome: codexHome).scanResult(limit: 10)
     let active = try #require(activeResult.sessions.first)
@@ -324,6 +354,7 @@ import Testing
     #expect(active.source == "vscode")
     #expect(active.cliVersion == "0.144.3")
     #expect(active.gitOriginURL == "git@github.com:openai/active.git")
+    #expect(active.threadScope == .task)
     #expect(active.isArchived == false)
 
     let allResult = try await CodexSessionScanner(
@@ -332,6 +363,7 @@ import Testing
     )
         .scanResult(limit: 10)
     #expect(allResult.sessions.map(\.sessionID) == ["archived", "active"])
+    #expect(allResult.sessions.map(\.threadScope) == [.project, .task])
     #expect(allResult.sessions.first?.isArchived == true)
 }
 
@@ -410,7 +442,7 @@ import Testing
     #expect(snapshots.map(\.sessionID) == ["new", "middle"])
 }
 
-@Test func progressiveScanPublishesTheSevenRecentThreadsBeforeTheCompleteSet() async throws {
+@Test func progressiveScanPublishesSevenProjectsAndSevenTasksBeforeTheCompleteSet() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
@@ -421,11 +453,30 @@ import Testing
     }
 
     let now = Date()
-    for index in 0..<11 {
+    var rows: [StateThreadFixture] = []
+    for index in 0..<16 {
         let fileURL = sessionsDirectory.appendingPathComponent("thread-\(index).jsonl")
         try writeSession(id: "thread-\(index)", to: fileURL)
         try setModificationDate(now.addingTimeInterval(TimeInterval(-index * 60)), for: fileURL)
+        rows.append(
+            StateThreadFixture(
+                id: "thread-\(index)",
+                path: fileURL.path,
+                recencyMilliseconds: Int64(16_000 - index * 1_000),
+                title: "Thread \(index)",
+                gitOriginURL: index < 8 ? "git@github.com:example/project.git" : nil,
+                archived: false
+            )
+        )
     }
+    try createCodexStateDatabase(
+        at: codexHome.appendingPathComponent("state.sqlite"),
+        rows: rows
+    )
+    try writeCodexSidebarState(
+        projectlessThreadIDs: Set((8..<16).map { "thread-\($0)" }),
+        to: codexHome
+    )
 
     let recorder = ScanProgressRecorder()
     let result = try await CodexSessionScanner(codexHome: codexHome).scanResult(
@@ -436,15 +487,16 @@ import Testing
     )
     let progress = await recorder.results()
 
-    #expect(result.sessions.count == 11)
-    #expect(result.metrics.filesSelected == 11)
+    #expect(result.sessions.count == 16)
+    #expect(result.metrics.filesSelected == 16)
     #expect((progress.first?.sessions.count ?? 0) > 0)
-    #expect((progress.first?.sessions.count ?? 0) <= 7)
-    #expect(progress.first?.metrics.filesSelected == 11)
-    let recentCheckpoint = progress.first { $0.sessions.count == 7 }
-    #expect(recentCheckpoint?.sessions.compactMap(\.sessionID) == (0..<7).map { "thread-\($0)" })
-    #expect(progress.first { $0.sessions.count > 7 } != nil)
-    #expect(progress.last?.sessions.count == 11)
+    #expect((progress.first?.sessions.count ?? 0) <= 14)
+    #expect(progress.first?.metrics.filesSelected == 16)
+    let initialCheckpoint = try #require(progress.first { $0.sessions.count == 14 })
+    #expect(initialCheckpoint.sessions.filter { $0.threadScope == .project }.count == 7)
+    #expect(initialCheckpoint.sessions.filter { $0.threadScope == .task }.count == 7)
+    #expect(progress.first { $0.sessions.count > 14 } != nil)
+    #expect(progress.last?.sessions.count == 16)
     #expect(zip(progress, progress.dropFirst()).allSatisfy { pair in
         pair.0.sessions.count <= pair.1.sessions.count
     })
@@ -1027,6 +1079,19 @@ private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFix
             throw CocoaError(.fileWriteUnknown)
         }
     }
+}
+
+private func writeCodexSidebarState(
+    projectlessThreadIDs: Set<String>,
+    to codexHome: URL
+) throws {
+    let values = projectlessThreadIDs.sorted().map { "\"\($0)\"" }.joined(separator: ",")
+    let state = "{\"projectless-thread-ids\":[\(values)]}"
+    try state.write(
+        to: codexHome.appendingPathComponent(".codex-global-state.json"),
+        atomically: true,
+        encoding: .utf8
+    )
 }
 
 private func createMinimalThreadDatabase(

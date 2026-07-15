@@ -23,7 +23,7 @@ struct ModexMenuView: View {
             dashboardHeader
             dashboardContent
             DashboardTopThreadsPanel(
-                sessions: topDashboardSessions,
+                sessions: dashboardSessions,
                 thresholds: model.settings.contextThresholds,
                 sessionDetailHoverDelayMilliseconds: model.settings.sessionDetailHoverDelayMilliseconds
             )
@@ -133,13 +133,10 @@ struct ModexMenuView: View {
         groupedSessions(model.summary?.sessions ?? [])
     }
 
-    private var topDashboardSessions: [IndexedSession] {
-        Array(
-            (model.summary?.sessions ?? [])
-                .enumerated()
-                .map { IndexedSession(index: $0.offset, session: $0.element) }
-                .prefix(ModexMonitorConfiguration.initialDisplayCount)
-        )
+    private var dashboardSessions: [IndexedSession] {
+        (model.summary?.sessions ?? [])
+            .enumerated()
+            .map { IndexedSession(index: $0.offset, session: $0.element) }
     }
 
     private var footer: some View {
@@ -259,6 +256,7 @@ struct ModexThreadDetailWindow: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedTab: ThreadDetailTab = .overview
+    @State private var selectedScope: CodexThreadScope = .project
     @State private var searchText = ""
     @State private var selectedProject = ThreadProjectFilter.all
     @State private var warningsOnly = false
@@ -267,6 +265,7 @@ struct ModexThreadDetailWindow: View {
     var body: some View {
         VStack(spacing: 0) {
             detailHeader
+            scopeBar
             filterBar
             tabBar
             Divider()
@@ -277,6 +276,9 @@ struct ModexThreadDetailWindow: View {
         .background(palette.background)
         .foregroundStyle(palette.text)
         .environment(\.modexPalette, palette)
+        .onChange(of: selectedScope) { _, _ in
+            selectedProject = .all
+        }
     }
 
     private var palette: ModexPalette {
@@ -288,7 +290,7 @@ struct ModexThreadDetailWindow: View {
     }
 
     private var filteredSessions: [SessionSnapshot] {
-        sessions.filter { session in
+        scopedSessions.filter { session in
             if warningsOnly, (session.contextUsagePercent ?? 0) < model.settings.contextThresholds.yellowPercent {
                 return false
             }
@@ -316,15 +318,28 @@ struct ModexThreadDetailWindow: View {
         }
     }
 
+    private var scopedSessions: [SessionSnapshot] {
+        sessions.filter { CodexThreadScope.resolve(for: $0) == selectedScope }
+    }
+
     private var projectFilters: [ThreadProjectFilter] {
         var filtersByID: [String: ThreadProjectFilter] = [:]
-        for session in sessions {
+        for session in scopedSessions {
             let project = projectPresentation(for: session)
             filtersByID[project.id] = ThreadProjectFilter(id: project.id, title: project.title)
         }
         return [.all] + filtersByID.values.sorted {
             $0.title.localizedStandardCompare($1.title) == .orderedAscending
         }
+    }
+
+    private var scopeBar: some View {
+        HStack {
+            ThreadScopeTabs(selection: $selectedScope, usesThreadTitles: false)
+            Spacer()
+        }
+        .padding(.horizontal, 22)
+        .padding(.bottom, 12)
     }
 
     private var detailHeader: some View {
@@ -384,13 +399,27 @@ struct ModexThreadDetailWindow: View {
                         .stroke(palette.surface.opacity(0.55), lineWidth: 0.7)
                 }
 
-            Picker("", selection: $selectedProject) {
-                ForEach(projectFilters) { filter in
-                    Text(filter.title).tag(filter)
+            if selectedScope == .project {
+                Picker("", selection: $selectedProject) {
+                    ForEach(projectFilters) { filter in
+                        Text(filter.title).tag(filter)
+                    }
                 }
+                .labelsHidden()
+                .frame(width: 190)
+            } else {
+                Text(ModexStrings.text("detail.allTasks"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(palette.secondaryText)
+                    .padding(.horizontal, 10)
+                    .frame(width: 190, height: 32, alignment: .leading)
+                    .background(palette.sidebar.opacity(0.82))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(palette.surface.opacity(0.55), lineWidth: 0.7)
+                    }
             }
-            .labelsHidden()
-            .frame(width: 190)
 
             filterToggle(
                 title: ModexStrings.text("detail.warnings"),
@@ -405,7 +434,7 @@ struct ModexThreadDetailWindow: View {
 
             Spacer()
 
-            Text(ModexStrings.format("detail.filteredCount", filteredSessions.count, sessions.count))
+            Text(ModexStrings.format("detail.filteredCount", filteredSessions.count, scopedSessions.count))
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(palette.mutedText)
         }
@@ -1620,13 +1649,15 @@ private struct DashboardTopThreadsPanel: View {
     let sessionDetailHoverDelayMilliseconds: Int
 
     @Environment(\.modexPalette) private var palette
+    @State private var selectedScope: CodexThreadScope = .project
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 10) {
                 Text(ModexStrings.text("dashboard.topThreads"))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(palette.secondaryText)
+                ThreadScopeTabs(selection: $selectedScope, usesThreadTitles: true)
                 Spacer()
                 Text(ModexStrings.text("dashboard.rankHint"))
                     .font(.system(size: 10, weight: .medium))
@@ -1634,13 +1665,13 @@ private struct DashboardTopThreadsPanel: View {
             }
 
             VStack(spacing: 0) {
-                if sessions.isEmpty {
+                if visibleSessions.isEmpty {
                     Text(ModexStrings.text("overview.noMetrics"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(palette.mutedText)
                         .frame(maxWidth: .infinity, minHeight: 70)
                 } else {
-                    ForEach(sessions) { indexedSession in
+                    ForEach(visibleSessions) { indexedSession in
                         DashboardThreadRow(
                             session: indexedSession.session,
                             index: indexedSession.index,
@@ -1658,6 +1689,62 @@ private struct DashboardTopThreadsPanel: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var visibleSessions: [IndexedSession] {
+        Array(
+            sessions
+                .filter { CodexThreadScope.resolve(for: $0.session) == selectedScope }
+                .prefix(ModexMonitorConfiguration.initialDisplayCount)
+        )
+    }
+}
+
+private struct ThreadScopeTabs: View {
+    @Binding var selection: CodexThreadScope
+    let usesThreadTitles: Bool
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(CodexThreadScope.allCases) { scope in
+                Button {
+                    selection = scope
+                } label: {
+                    Label(title(for: scope), systemImage: symbol(for: scope))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(scope == selection ? palette.accent : palette.secondaryText)
+                        .padding(.horizontal, 9)
+                        .frame(height: 28)
+                        .background(scope == selection ? palette.surfaceHighlight : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func title(for scope: CodexThreadScope) -> String {
+        switch (scope, usesThreadTitles) {
+        case (.project, true):
+            return ModexStrings.text("threadScope.projectThreads")
+        case (.task, true):
+            return ModexStrings.text("threadScope.taskThreads")
+        case (.project, false):
+            return ModexStrings.text("threadScope.projects")
+        case (.task, false):
+            return ModexStrings.text("threadScope.tasks")
+        }
+    }
+
+    private func symbol(for scope: CodexThreadScope) -> String {
+        switch scope {
+        case .project:
+            return "folder"
+        case .task:
+            return "list.bullet"
+        }
     }
 }
 
@@ -3245,6 +3332,18 @@ private struct InstrumentationView: View {
                     label: ModexStrings.text("instrumentation.indexRead"),
                     value: formatBytes(metrics.sessionIndexBytesRead),
                     help: ModexStrings.text("instrumentation.help.indexRead")
+                )
+            )
+        }
+        if metrics.sidebarStateBytesRead > 0 || metrics.sidebarStateCacheHit {
+            rows.append(
+                InstrumentationDetail(
+                    id: "sidebar-state",
+                    label: ModexStrings.text("instrumentation.sidebarState"),
+                    value: metrics.sidebarStateCacheHit
+                        ? ModexStrings.text("instrumentation.cacheHitValue")
+                        : formatBytes(metrics.sidebarStateBytesRead),
+                    help: ModexStrings.text("instrumentation.help.sidebarState")
                 )
             )
         }

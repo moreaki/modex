@@ -103,6 +103,7 @@
 "instrumentation.averageMemory" = "Memoria media";
 "instrumentation.averageNote" = "Promedios por escaneo de %d escaneos medidos en la última hora; el máximo de memoria es la mayor huella final.";
 "instrumentation.cache" = "Caché";
+"instrumentation.cacheHitValue" = "En caché";
 "instrumentation.cacheEntries" = "Entradas";
 "instrumentation.cacheOff" = "Desactivado";
 "instrumentation.cacheSaved" = "Ahorrado";
@@ -126,6 +127,7 @@
 "instrumentation.help.averageWakeups" = "Promedio de activaciones por inactividad / interrupción por escaneo medido durante la última hora.";
 "instrumentation.help.cacheEntries" = "Resultados de archivos de sesión conservados actualmente en la caché de escaneo en memoria.";
 "instrumentation.help.cacheSaved" = "Bytes evitados porque los archivos sin cambios procedían por completo de la caché de escaneo.";
+"instrumentation.help.sidebarState" = "Lista de hilos sin proyecto de Codex usada para separar Proyectos de Tareas; muestra los bytes leídos o un acierto de caché.";
 "instrumentation.help.chunk" = "Bytes solicitados por lectura en flujo; bloques mayores usan más memoria temporal pero reducen las lecturas.";
 "instrumentation.help.contextSwitches" = "Cambios voluntarios / involuntarios del planificador durante esta lectura.";
 "instrumentation.help.cpu" = "Tiempo de CPU del proceso para esta lectura · carga media, que puede superar el 100 % con análisis concurrente.";
@@ -168,6 +170,7 @@
 "instrumentation.resources" = "Recursos";
 "instrumentation.scanActive" = "Escaneo activo";
 "instrumentation.sessionFallback" = "sesión";
+"instrumentation.sidebarState" = "Estado de la barra lateral";
 "instrumentation.slowestFiles" = "Archivos más lentos";
 "instrumentation.status" = "Estado";
 "instrumentation.title" = "Última lectura";
@@ -235,6 +238,11 @@
 "projectGroup.threadCountMany" = "%d hilos";
 "projectGroup.tokenTotal" = "%@ tokens";
 
+"threadScope.projectThreads" = "Hilos de proyecto";
+"threadScope.projects" = "Proyectos";
+"threadScope.taskThreads" = "Hilos de tareas";
+"threadScope.tasks" = "Tareas";
+
 "dashboard.threads" = "Threads";
 "dashboard.activity" = "Actividad";
 "dashboard.cachedInput" = "Entrada en caché";
@@ -266,6 +274,7 @@
 "detail.agentActivity" = "Actividad de agentes";
 "detail.agentActivityDetail" = "Eventos del ciclo de vida de subagentes registrados por Codex.";
 "detail.allProjects" = "Todos los proyectos";
+"detail.allTasks" = "Todas las tareas";
 "detail.cacheSaved" = "%@ ahorrado por caché";
 "detail.chunkLine" = "bloque %@, línea %@";
 "detail.commands" = "Comandos";

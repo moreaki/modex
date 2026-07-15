@@ -103,6 +103,7 @@
 "instrumentation.averageMemory" = "Avg memory";
 "instrumentation.averageNote" = "Per-scan averages from %d measured scans in the last hour; memory high is the largest completion footprint.";
 "instrumentation.cache" = "Cache";
+"instrumentation.cacheHitValue" = "Cached";
 "instrumentation.cacheEntries" = "Entries";
 "instrumentation.cacheOff" = "Off";
 "instrumentation.cacheSaved" = "Saved";
@@ -126,6 +127,7 @@
 "instrumentation.help.averageWakeups" = "Average idle / interrupt process wakeups per measured scan in the last hour.";
 "instrumentation.help.cacheEntries" = "Session-file results currently held in the in-memory scan cache.";
 "instrumentation.help.cacheSaved" = "Bytes avoided because unchanged files came entirely from the scan cache.";
+"instrumentation.help.sidebarState" = "Codex’s projectless-thread list used to separate Projects from Tasks; shows bytes read or a cache hit.";
 "instrumentation.help.chunk" = "Bytes requested from each file per streaming read; larger chunks trade temporary memory for fewer reads.";
 "instrumentation.help.contextSwitches" = "Voluntary / involuntary scheduler context switches during this read.";
 "instrumentation.help.cpu" = "Process CPU time used by this read · average CPU load, which can exceed 100% with concurrent parsing.";
@@ -168,6 +170,7 @@
 "instrumentation.resources" = "Resources";
 "instrumentation.scanActive" = "Scan active";
 "instrumentation.sessionFallback" = "session";
+"instrumentation.sidebarState" = "Sidebar state";
 "instrumentation.slowestFiles" = "Slowest Files";
 "instrumentation.status" = "Status";
 "instrumentation.title" = "Last Read";
@@ -235,6 +238,11 @@
 "projectGroup.threadCountMany" = "%d threads";
 "projectGroup.tokenTotal" = "%@ tokens";
 
+"threadScope.projectThreads" = "Project Threads";
+"threadScope.projects" = "Projects";
+"threadScope.taskThreads" = "Task Threads";
+"threadScope.tasks" = "Tasks";
+
 "dashboard.threads" = "Threads";
 "dashboard.activity" = "Activity";
 "dashboard.cachedInput" = "Cached input";
@@ -266,6 +274,7 @@
 "detail.agentActivity" = "Agent activity";
 "detail.agentActivityDetail" = "Sub-agent lifecycle events recorded by Codex.";
 "detail.allProjects" = "All projects";
+"detail.allTasks" = "All tasks";
 "detail.cacheSaved" = "%@ saved by cache";
 "detail.chunkLine" = "chunk %@, line %@";
 "detail.commands" = "Commands";
