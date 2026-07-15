@@ -74,6 +74,12 @@ public struct CodexRateLimits: Equatable, Sendable {
             .min()
     }
 
+    public var sevenDayWindow: CodexRateLimitWindow? {
+        [primary, secondary]
+            .compactMap(\.self)
+            .first { $0.windowMinutes == 10_080 }
+    }
+
     public var isGeneralAccountLimit: Bool {
         if let normalizedID = Self.normalized(limitID) {
             return normalizedID == "codex"

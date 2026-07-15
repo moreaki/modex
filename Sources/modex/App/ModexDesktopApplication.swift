@@ -60,7 +60,8 @@ private struct ModexMenuBarLabel: View {
             }
         } icon: {
             ModexStatusIcon(
-                contextUsagePercent: model.summary?.contextUsagePercent,
+                remainingPercent: weeklyWindow?.leftPercent,
+                warningUsagePercent: weeklyWindow?.usedPercent,
                 thresholds: model.settings.contextThresholds
             )
             .frame(width: 18, height: 18)
@@ -92,11 +93,8 @@ private struct ModexMenuBarLabel: View {
         guard let summary = model.summary else {
             return ""
         }
-        if let percent = summary.contextUsagePercent {
+        if let percent = summary.latestRateLimits?.sevenDayWindow?.leftPercent {
             return "\(Int(percent.rounded()))%"
-        }
-        if summary.totalTokens > 0 {
-            return summary.totalTokens.formatted(.number.notation(.compactName))
         }
         return ""
     }
@@ -108,19 +106,21 @@ private struct ModexMenuBarLabel: View {
         guard let summary = model.summary else {
             return ModexStrings.text("overview.noMetrics")
         }
-        let context = summary.contextUsagePercent
-            .map { ModexStrings.format("app.context", Int($0.rounded())) }
-            ?? ModexStrings.text("app.unknownContext")
-        let base = ModexStrings.format(
+        let weeklyLimit = summary.latestRateLimits?.sevenDayWindow
+            .map {
+                "\(ModexStrings.text("column.secondaryLimit.title")) \(percentLeft($0.leftPercent))"
+            }
+            ?? "\(ModexStrings.text("column.secondaryLimit.helpTitle")) \(ModexStrings.text("overview.contextUnavailable"))"
+        return ModexStrings.format(
             "app.tooltip",
-            context,
+            weeklyLimit,
             summary.medianTurnTokens.formatted(),
             summary.compactionEvents
         )
-        if let status = rateLimitSummary(summary.latestRateLimits) {
-            return "\(base)\n\(status)"
-        }
-        return base
+    }
+
+    private var weeklyWindow: CodexRateLimitWindow? {
+        model.summary?.latestRateLimits?.sevenDayWindow
     }
 
     private func handleHover(_ isHovering: Bool) {
@@ -144,25 +144,6 @@ private struct ModexMenuBarLabel: View {
         }
     }
 
-    private func rateLimitSummary(_ rateLimits: CodexRateLimits?) -> String? {
-        guard let rateLimits,
-              rateLimits.primary != nil || rateLimits.secondary != nil
-        else {
-            return nil
-        }
-
-        let values = [
-            rateLimits.primary.map {
-                "\(rateLimitShortLabel($0, fallbackKey: "column.primaryLimit.title")) \(percentLeft($0.leftPercent))"
-            },
-            rateLimits.secondary.map {
-                "\(rateLimitShortLabel($0, fallbackKey: "column.secondaryLimit.title")) \(percentLeft($0.leftPercent))"
-            },
-        ]
-        .compactMap(\.self)
-        return values.joined(separator: "  ")
-    }
-
     private func percentLeft(_ percent: Double?) -> String {
         percent.map { ModexStrings.format("app.percentLeft", Int($0.rounded())) }
             ?? ModexStrings.text("overview.contextUnavailable")
@@ -177,7 +158,8 @@ private struct ModexMenuBarHoverCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 ModexStatusIcon(
-                    contextUsagePercent: model.summary?.contextUsagePercent,
+                    remainingPercent: model.summary?.latestRateLimits?.sevenDayWindow?.leftPercent,
+                    warningUsagePercent: model.summary?.latestRateLimits?.sevenDayWindow?.usedPercent,
                     thresholds: model.settings.contextThresholds
                 )
                 .frame(width: 18, height: 18)
@@ -194,10 +176,6 @@ private struct ModexMenuBarHoverCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else if let summary = model.summary {
                 VStack(alignment: .leading, spacing: 6) {
-                    valueRow(
-                        ModexStrings.text("dashboard.highestContext"),
-                        contextLeftValue(summary)
-                    )
                     if let primary = summary.latestRateLimits?.primary {
                         valueRow(
                             rateLimitShortLabel(primary, fallbackKey: "column.primaryLimit.title"),
@@ -210,6 +188,10 @@ private struct ModexMenuBarHoverCard: View {
                             limitValue(secondary)
                         )
                     }
+                    valueRow(
+                        ModexStrings.text("dashboard.highestContext"),
+                        contextLeftValue(summary)
+                    )
                     valueRow(
                         ModexStrings.text("column.median.title"),
                         summary.medianTurnTokens.formatted()

@@ -2,13 +2,15 @@ import CoreGraphics
 import SwiftUI
 
 struct ModexStatusIcon: View {
-    let contextUsagePercent: Double?
+    let remainingPercent: Double?
+    let warningUsagePercent: Double?
     var thresholds: ModexContextThresholds = .default
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         if let image = Self.makeImage(
-            contextUsagePercent: contextUsagePercent,
+            remainingPercent: remainingPercent,
+            warningUsagePercent: warningUsagePercent,
             thresholds: thresholds,
             colorScheme: colorScheme
         ) {
@@ -25,7 +27,8 @@ struct ModexStatusIcon: View {
     private static let scale: CGFloat = 2
 
     private static func makeImage(
-        contextUsagePercent: Double?,
+        remainingPercent: Double?,
+        warningUsagePercent: Double?,
         thresholds: ModexContextThresholds,
         colorScheme: ColorScheme
     ) -> CGImage? {
@@ -46,12 +49,12 @@ struct ModexStatusIcon: View {
         context.setLineCap(.round)
         context.setLineJoin(.round)
 
-        let percent = min(max(contextUsagePercent ?? 0, 0), 100)
-        let progress = percent / 100
+        let remaining = min(max(remainingPercent ?? 0, 0), 100)
+        let progress = remaining / 100
         let accent = color(
-            for: percent,
+            for: min(max(warningUsagePercent ?? 0, 0), 100),
             thresholds: thresholds,
-            hasData: contextUsagePercent != nil
+            hasData: remainingPercent != nil && warningUsagePercent != nil
         )
         let center = CGPoint(x: pointSize / 2, y: pointSize / 2)
         let radius: CGFloat = pointSize / 2 - 2.5
@@ -115,11 +118,11 @@ struct ModexStatusIcon: View {
 
 #Preview("Status Icon") {
     HStack(spacing: 14) {
-        ModexStatusIcon(contextUsagePercent: nil)
-        ModexStatusIcon(contextUsagePercent: 35)
-        ModexStatusIcon(contextUsagePercent: 69)
-        ModexStatusIcon(contextUsagePercent: 83)
-        ModexStatusIcon(contextUsagePercent: 94)
+        ModexStatusIcon(remainingPercent: nil, warningUsagePercent: nil)
+        ModexStatusIcon(remainingPercent: 90, warningUsagePercent: 10)
+        ModexStatusIcon(remainingPercent: 45, warningUsagePercent: 55)
+        ModexStatusIcon(remainingPercent: 22, warningUsagePercent: 78)
+        ModexStatusIcon(remainingPercent: 10, warningUsagePercent: 90)
     }
     .padding(16)
     .background(.black)

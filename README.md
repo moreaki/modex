@@ -6,7 +6,7 @@ It reads local Codex data from `~/.codex`, uses Codex's read-only state index to
 
 ## What It Shows
 
-- A menu-bar heartbeat gauge with the highest context percentage among scanned active threads.
+- A menu-bar heartbeat gauge with the remaining seven-day Codex account quota.
 - A Codex `/status` style overview with context left plus the rate-limit windows reported by current local logs.
 - A compact per-thread table grouped by project, using the indexed Codex thread title as the row title and the session id as secondary metadata.
 - Separate seven-thread recent-activity views for Codex Project threads and standalone Task threads, while the complete eligible thread set progressively fills the detached detail window.
@@ -54,15 +54,15 @@ The packaging script builds an optimized release binary by default; use `MODEX_B
 
 ## Menu-Bar Reading
 
-The number beside the menu-bar icon is the highest rounded context percentage used by any scanned active Codex thread:
+The number beside the menu-bar icon is the rounded percentage remaining in the current seven-day general Codex account-limit window. It is the same value shown by the dashboard's `7d limit` bar:
 
 ```text
-input_tokens / model_context_window * 100
+100 - seven_day_limit.used_percent
 ```
 
-This stable, risk-oriented reading changes when the most context-heavy thread grows or compacts; it does not switch merely because another thread became more recently active. If context usage is unavailable, Modex falls back to a compact total-token value. The circular gauge uses the configured context thresholds, with defaults of 55%, 78%, and 90%.
+The circular track also represents quota remaining, so it drains as the weekly allowance is consumed. Its colour becomes more urgent based on the consumed percentage, using the configured warning thresholds. When a seven-day account limit is unavailable, Modex shows a neutral icon without substituting an unrelated token or thread-context value. Highest individual thread context remains available as a separate dashboard metric.
 
-The account-limit bars are separate from thread context. Modex selects the newest general Codex account-limit event across all scanned sessions and ignores named model-specific limit pools. The percentage shown there is capacity left, matching Codex's Usage & billing semantics.
+Modex selects the newest general Codex account-limit event across all scanned sessions and ignores named model-specific limit pools. It identifies the seven-day window by its duration whether Codex reports it as the primary or secondary window, preserving compatibility with both local payload layouts. The percentage is capacity left, matching Codex's Usage & billing semantics.
 
 Clicking the menu-bar item opens immediately using the latest cached result, then refreshes in the background. On a cold read, Modex prioritizes the seven newest Project threads and seven newest standalone Task threads, publishing rows as they become available before progressively adding every remaining eligible thread. The default refresh interval is 60 seconds.
 

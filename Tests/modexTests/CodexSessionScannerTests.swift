@@ -123,10 +123,20 @@ import Testing
     #expect(summary.contextUsagePercent == 86)
     #expect(summary.latestRateLimits?.limitID == "codex")
     #expect(summary.latestRateLimits?.primary?.leftPercent == 93)
+    #expect(summary.latestRateLimits?.sevenDayWindow?.leftPercent == 93)
     #expect(summary.latestRateLimitsObservedAt == Date(timeIntervalSince1970: 200))
 
     let modelSpecificOnly = ModexSummary(sessions: [newestModelSpecificSession])
     #expect(modelSpecificOnly.latestRateLimits == nil)
+}
+
+@Test func sevenDayRateLimitCanBePrimaryOrSecondary() {
+    let fiveHour = CodexRateLimitWindow(usedPercent: 12, windowMinutes: 300)
+    let sevenDay = CodexRateLimitWindow(usedPercent: 26, windowMinutes: 10_080)
+
+    #expect(CodexRateLimits(primary: sevenDay).sevenDayWindow == sevenDay)
+    #expect(CodexRateLimits(primary: fiveHour, secondary: sevenDay).sevenDayWindow == sevenDay)
+    #expect(CodexRateLimits(primary: fiveHour).sevenDayWindow == nil)
 }
 
 @Test func parsesSessionActivityAndPerformanceMetrics() async throws {
