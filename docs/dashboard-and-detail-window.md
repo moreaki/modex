@@ -129,7 +129,7 @@ Per-metric insight actions can appear where interpretation would be useful, espe
 
 Prefer lightweight metadata first:
 
-- the newest `state_*.sqlite` for read-only thread discovery, title, cwd, archived state, model, reasoning effort, source, agent metadata, Codex version, and timestamps
+- a compatible Codex SQLite thread index for read-only discovery, title, cwd, archived state, model, reasoning effort, source, agent metadata, Codex version, and timestamps; discover it by schema instead of a versioned filename or fixed subdirectory
 - `session_index.jsonl` as a legacy thread-title fallback
 - JSONL rollout files for exact token progression, turn timing, command outcomes, patches, MCP calls, web searches, sub-agent activity, file changes, compactions, and limits
 - `models_cache.json` for display names, context windows, speed tiers, supported reasoning levels
@@ -174,11 +174,17 @@ Instrumentation candidates:
 - cache hits/misses
 - cache entries
 - saved bytes
+- append-resume files and bytes saved
 - parser mode
 - configured and active concurrency
 - chunk and line-buffer caps
 - oversized lines
 - slowest files with thread name
+- process memory footprint and lifetime peak
+- CPU time and average CPU use during the scan
+- idle/interrupt wakeups and voluntary/involuntary context switches
+- physical bytes read and written
+- actual one-hour scan totals for active time, CPU time, logical/physical I/O, wakeups, and context switches
 
 ## UX Guard Rails
 

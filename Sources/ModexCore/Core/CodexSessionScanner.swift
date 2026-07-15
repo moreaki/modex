@@ -79,7 +79,8 @@ public final class CodexSessionScanner {
         cache: CodexSessionScanCache? = nil,
         onProgress: (@Sendable (CodexScanResult) async -> Void)? = nil
     ) async throws -> CodexScanResult {
-        let startedAt = Date()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let resourceStart = ProcessResourceSampler.sample()
         let safeLimit = limit.map { max(0, $0) }
         if safeLimit == 0 {
             return CodexScanResult(
@@ -89,7 +90,7 @@ public final class CodexSessionScanner {
                     filesSelected: 0,
                     filesParsed: 0,
                     bytesRead: 0,
-                    durationSeconds: Date().timeIntervalSince(startedAt),
+                    durationSeconds: ProcessInfo.processInfo.systemUptime - startedAt,
                     maximumConcurrentParses: 0,
                     configuredMaximumConcurrentParses: configuration.maximumConcurrentParses,
                     chunkSizeBytes: configuration.chunkSizeBytes,
@@ -112,7 +113,7 @@ public final class CodexSessionScanner {
                     filesSelected: 0,
                     filesParsed: 0,
                     bytesRead: 0,
-                    durationSeconds: Date().timeIntervalSince(startedAt),
+                    durationSeconds: ProcessInfo.processInfo.systemUptime - startedAt,
                     maximumConcurrentParses: 0,
                     configuredMaximumConcurrentParses: configuration.maximumConcurrentParses,
                     chunkSizeBytes: configuration.chunkSizeBytes,
@@ -164,7 +165,11 @@ public final class CodexSessionScanner {
             }
             return IndexedParseResult(
                 index: indexedResult.index,
-                result: ParseResult(snapshot: snapshot, metrics: metrics)
+                result: ParseResult(
+                    snapshot: snapshot,
+                    metrics: metrics,
+                    checkpoint: indexedResult.result.checkpoint
+                )
             )
         }
 
@@ -201,7 +206,13 @@ public final class CodexSessionScanner {
                     }
                     cacheMisses += 1
                 }
-                workItems.append(IndexedSessionFileCandidate(index: index, file: file))
+                workItems.append(
+                    IndexedSessionFileCandidate(
+                        index: index,
+                        file: file,
+                        checkpoint: cache?.checkpointForGrowth(of: SessionScanCacheKey(candidate: file))
+                    )
+                )
             }
             return workItems
         }
@@ -215,6 +226,7 @@ public final class CodexSessionScanner {
             let activeConcurrentParses = parseWorkItemCount == 0
                 ? 0
                 : min(configuration.maximumConcurrentParses, parseWorkItemCount)
+            let resources = ProcessResourceSampler.delta(from: resourceStart)
             return CodexScanResult(
                 sessions: sessions,
                 metrics: ScanMetrics(
@@ -222,7 +234,7 @@ public final class CodexSessionScanner {
                     filesSelected: files.count,
                     filesParsed: sessions.count,
                     bytesRead: bytesRead,
-                    durationSeconds: Date().timeIntervalSince(startedAt),
+                    durationSeconds: ProcessInfo.processInfo.systemUptime - startedAt,
                     maximumConcurrentParses: activeConcurrentParses,
                     configuredMaximumConcurrentParses: configuration.maximumConcurrentParses,
                     chunkSizeBytes: configuration.chunkSizeBytes,
@@ -236,6 +248,17 @@ public final class CodexSessionScanner {
                     cacheMisses: cacheMisses,
                     cacheEntries: cache?.entryCount ?? 0,
                     cacheBytesSaved: cacheBytesSaved,
+                    incrementalFiles: fileMetrics.filter { $0.incrementalBytesSaved > 0 }.count,
+                    incrementalBytesSaved: fileMetrics.reduce(0) { $0 + $1.incrementalBytesSaved },
+                    processMemoryBytes: resources.currentMemoryBytes,
+                    processPeakMemoryBytes: resources.peakMemoryBytes,
+                    cpuTimeSeconds: resources.cpuTimeSeconds,
+                    physicalBytesRead: resources.physicalBytesRead,
+                    physicalBytesWritten: resources.physicalBytesWritten,
+                    idleWakeups: resources.idleWakeups,
+                    interruptWakeups: resources.interruptWakeups,
+                    voluntaryContextSwitches: resources.voluntaryContextSwitches,
+                    involuntaryContextSwitches: resources.involuntaryContextSwitches,
                     fileMetrics: fileMetrics
                 )
             )
@@ -251,7 +274,8 @@ public final class CodexSessionScanner {
         _ = await Self.parseConcurrently(
             firstWorkItems,
             maximumConcurrentParses: configuration.maximumConcurrentParses,
-            configuration: configuration
+            configuration: configuration,
+            priority: .userInitiated
         ) { result in
             append(result)
             guard let onProgress else {
@@ -277,7 +301,8 @@ public final class CodexSessionScanner {
         _ = await Self.parseConcurrently(
             remainingWorkItems,
             maximumConcurrentParses: configuration.maximumConcurrentParses,
-            configuration: configuration
+            configuration: configuration,
+            priority: .utility
         ) { result in
             append(result)
             completedSinceProgress += 1
@@ -305,6 +330,7 @@ public final class CodexSessionScanner {
         _ workItems: [IndexedSessionFileCandidate],
         maximumConcurrentParses: Int,
         configuration: CodexSessionScannerConfiguration,
+        priority: TaskPriority,
         onResult: ((IndexedParseResult) async -> Void)? = nil
     ) async -> [IndexedParseResult] {
         guard workItems.isEmpty == false else {
@@ -322,13 +348,15 @@ public final class CodexSessionScanner {
                     let workItem = workItems[nextIndex]
                     nextIndex += 1
                     activeTasks += 1
-                    group.addTask(priority: .userInitiated) {
+                    group.addTask(priority: priority) {
                         guard Task.isCancelled == false else {
                             return nil
                         }
                         guard let result = try? parseSnapshot(
                             fileURL: workItem.file.url,
                             fallbackModificationDate: workItem.file.modificationDate,
+                            maximumBytes: workItem.file.fileSize,
+                            checkpoint: workItem.checkpoint,
                             configuration: configuration
                         ) else {
                             return nil
@@ -362,6 +390,8 @@ public final class CodexSessionScanner {
         try Self.parseSnapshot(
             fileURL: fileURL,
             fallbackModificationDate: Self.modificationDate(fileURL),
+            maximumBytes: Self.fileSize(fileURL),
+            checkpoint: nil,
             configuration: configuration
         ).snapshot
     }
@@ -455,10 +485,17 @@ public final class CodexSessionScanner {
     private static func parseSnapshot(
         fileURL: URL,
         fallbackModificationDate: Date,
+        maximumBytes: Int,
+        checkpoint: FastParserCheckpoint?,
         configuration: CodexSessionScannerConfiguration
     ) throws -> ParseResult {
         try FastCodexJSONLParser(configuration: configuration)
-            .parse(fileURL: fileURL, fallbackModificationDate: fallbackModificationDate)
+            .parse(
+                fileURL: fileURL,
+                fallbackModificationDate: fallbackModificationDate,
+                maximumBytes: maximumBytes,
+                checkpoint: checkpoint
+            )
     }
 
     private static func modificationDate(_ url: URL) -> Date {
@@ -542,6 +579,19 @@ public final class CodexSessionScanCache: @unchecked Sendable {
         storage.withLock { $0.entries[key] }
     }
 
+    fileprivate func checkpointForGrowth(of key: SessionScanCacheKey) -> FastParserCheckpoint? {
+        storage.withLock { storage in
+            guard let previousKey = storage.keysByPath[key.path],
+                  previousKey.fileSize < key.fileSize,
+                  let result = storage.entries[previousKey],
+                  result.checkpoint.processedBytes == previousKey.fileSize
+            else {
+                return nil
+            }
+            return result.checkpoint
+        }
+    }
+
     fileprivate func store(_ result: ParseResult, for key: SessionScanCacheKey) {
         storage.withLock { storage in
             if let previousKey = storage.keysByPath[key.path], previousKey != key {
@@ -580,6 +630,7 @@ private struct SessionFileDiscovery: Sendable {
 private struct IndexedSessionFileCandidate: Sendable {
     let index: Int
     let file: SessionFileCandidate
+    let checkpoint: FastParserCheckpoint?
 }
 
 private struct IndexedParseResult: Sendable {
@@ -590,10 +641,22 @@ private struct IndexedParseResult: Sendable {
 fileprivate struct ParseResult: Sendable {
     let snapshot: SessionSnapshot
     let metrics: FileScanMetrics
+    let checkpoint: FastParserCheckpoint
 
     func asCacheHit() -> ParseResult {
-        ParseResult(snapshot: snapshot, metrics: metrics.asCacheHit())
+        ParseResult(snapshot: snapshot, metrics: metrics.asCacheHit(), checkpoint: checkpoint)
     }
+}
+
+fileprivate struct FastParserCheckpoint: Sendable {
+    let snapshot: SessionSnapshot
+    let parserState: FastParserState
+    let pendingLine: Data
+    let skippingOversizedLine: Bool
+    let processedBytes: Int
+    let tailFingerprint: Data
+    let maximumBufferedLineBytes: Int
+    let oversizedLines: Int
 }
 
 private struct SessionIndexResult: Sendable {
@@ -619,44 +682,53 @@ private final class SessionIndexParser {
         var skippingOversizedLine = false
         var bytesRead = 0
 
-        while let chunk = try handle.read(upToCount: configuration.chunkSizeBytes),
-              chunk.isEmpty == false
-        {
-            bytesRead += chunk.count
-            var lineStart = chunk.startIndex
-            var index = chunk.startIndex
+        while true {
+            let didRead = try autoreleasepool { () throws -> Bool in
+                guard let chunk = try handle.read(upToCount: configuration.chunkSizeBytes),
+                      chunk.isEmpty == false
+                else {
+                    return false
+                }
+                bytesRead += chunk.count
+                var lineStart = chunk.startIndex
+                var index = chunk.startIndex
 
-            while index < chunk.endIndex {
-                if chunk[index] == FastJSONPattern.lineFeed {
-                    if skippingOversizedLine {
-                        skippingOversizedLine = false
-                    } else if pendingLine.isEmpty {
-                        if lineStart < index {
-                            parseLine(chunk[lineStart..<index], matching: sessionIDs, into: &threadNames)
+                while index < chunk.endIndex {
+                    if chunk[index] == FastJSONPattern.lineFeed {
+                        if skippingOversizedLine {
+                            skippingOversizedLine = false
+                        } else if pendingLine.isEmpty {
+                            if lineStart < index {
+                                parseLine(chunk[lineStart..<index], matching: sessionIDs, into: &threadNames)
+                            }
+                        } else {
+                            pendingLine.append(chunk[lineStart..<index])
+                            parseLine(pendingLine[pendingLine.startIndex..<pendingLine.endIndex], matching: sessionIDs, into: &threadNames)
+                            pendingLine.removeAll(keepingCapacity: false)
                         }
-                    } else {
-                        pendingLine.append(chunk[lineStart..<index])
+                        lineStart = chunk.index(after: index)
+                    }
+                    index = chunk.index(after: index)
+                }
+
+                if lineStart < chunk.endIndex, skippingOversizedLine == false {
+                    let segment = chunk[lineStart..<chunk.endIndex]
+                    if pendingLine.count + segment.count > configuration.sessionIndexMaximumLineBufferBytes {
+                        let remainingBytes = max(0, configuration.sessionIndexMaximumLineBufferBytes - pendingLine.count)
+                        pendingLine.append(segment.prefix(remainingBytes))
                         parseLine(pendingLine[pendingLine.startIndex..<pendingLine.endIndex], matching: sessionIDs, into: &threadNames)
                         pendingLine.removeAll(keepingCapacity: false)
+                        skippingOversizedLine = true
+                    } else {
+                        pendingLine.append(segment)
                     }
-                    lineStart = chunk.index(after: index)
                 }
-                index = chunk.index(after: index)
-            }
 
-            if lineStart < chunk.endIndex, skippingOversizedLine == false {
-                let segment = chunk[lineStart..<chunk.endIndex]
-                if pendingLine.count + segment.count > configuration.sessionIndexMaximumLineBufferBytes {
-                    let remainingBytes = max(0, configuration.sessionIndexMaximumLineBufferBytes - pendingLine.count)
-                    pendingLine.append(segment.prefix(remainingBytes))
-                    parseLine(pendingLine[pendingLine.startIndex..<pendingLine.endIndex], matching: sessionIDs, into: &threadNames)
-                    pendingLine.removeAll(keepingCapacity: false)
-                    skippingOversizedLine = true
-                } else {
-                    pendingLine.append(segment)
-                }
+                return true
             }
-
+            guard didRead else {
+                break
+            }
             if let sessionIDs, threadNames.count == sessionIDs.count {
                 return SessionIndexResult(threadNames: threadNames, bytesRead: bytesRead)
             }
@@ -687,6 +759,7 @@ private final class SessionIndexParser {
 
 private final class FastCodexJSONLParser {
     static let parserMode = "streaming-byte-scan"
+    private static let fingerprintSize = 64
 
     private let configuration: CodexSessionScannerConfiguration
 
@@ -694,86 +767,130 @@ private final class FastCodexJSONLParser {
         self.configuration = configuration
     }
 
-    func parse(fileURL: URL, fallbackModificationDate: Date) throws -> ParseResult {
-        let startedAt = Date()
+    func parse(
+        fileURL: URL,
+        fallbackModificationDate: Date,
+        maximumBytes: Int,
+        checkpoint: FastParserCheckpoint?
+    ) throws -> ParseResult {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer {
             try? handle.close()
         }
 
+        let maximumBytes = max(0, maximumBytes)
         var snapshot = SessionSnapshot(fileURL: fileURL)
         var pendingLine = Data()
         var skippingOversizedLine = false
         var bytesRead = 0
+        var parsedBytes = 0
+        var processedBytes = 0
         var maximumBufferedLineBytes = 0
         var oversizedLines = 0
         var parserState = FastParserState()
+        var tailFingerprint = Data()
+        var incrementalBytesSaved = 0
 
-        while let chunk = try handle.read(upToCount: configuration.chunkSizeBytes),
-              chunk.isEmpty == false
+        if let checkpoint,
+           checkpoint.processedBytes < maximumBytes,
+           try validate(checkpoint: checkpoint, using: handle, bytesRead: &bytesRead)
         {
-            bytesRead += chunk.count
-            var lineStart = chunk.startIndex
-            var index = chunk.startIndex
+            snapshot = checkpoint.snapshot
+            pendingLine = checkpoint.pendingLine
+            skippingOversizedLine = checkpoint.skippingOversizedLine
+            processedBytes = checkpoint.processedBytes
+            maximumBufferedLineBytes = checkpoint.maximumBufferedLineBytes
+            oversizedLines = checkpoint.oversizedLines
+            parserState = checkpoint.parserState
+            tailFingerprint = checkpoint.tailFingerprint
+            incrementalBytesSaved = checkpoint.processedBytes
+            try handle.seek(toOffset: UInt64(checkpoint.processedBytes))
+        } else {
+            try handle.seek(toOffset: 0)
+        }
 
-            while index < chunk.endIndex {
-                if chunk[index] == FastJSONPattern.lineFeed {
-                    if skippingOversizedLine {
-                        skippingOversizedLine = false
-                    } else if pendingLine.isEmpty {
-                        if lineStart < index {
-                            parseLine(chunk[lineStart..<index], into: &snapshot, state: &parserState)
-                        }
-                    } else {
-                        let segment = chunk[lineStart..<index]
-                        if pendingLine.count + segment.count > configuration.maximumLineBufferBytes {
-                            appendCapped(segment, to: &pendingLine)
-                            maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
-                            parseLine(
-                                pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
-                                into: &snapshot,
-                                state: &parserState
-                            )
-                            pendingLine.removeAll(keepingCapacity: false)
-                            oversizedLines += 1
+        while processedBytes + parsedBytes < maximumBytes {
+            let didRead = try autoreleasepool { () throws -> Bool in
+                let readSize = min(configuration.chunkSizeBytes, maximumBytes - processedBytes - parsedBytes)
+                guard let chunk = try handle.read(upToCount: readSize), chunk.isEmpty == false else {
+                    return false
+                }
+                bytesRead += chunk.count
+                parsedBytes += chunk.count
+                updateTailFingerprint(with: chunk, fingerprint: &tailFingerprint)
+                var lineStart = chunk.startIndex
+                var index = chunk.startIndex
+
+                while index < chunk.endIndex {
+                    if chunk[index] == FastJSONPattern.lineFeed {
+                        if skippingOversizedLine {
+                            skippingOversizedLine = false
+                        } else if pendingLine.isEmpty {
+                            if lineStart < index {
+                                parseLine(chunk[lineStart..<index], into: &snapshot, state: &parserState)
+                            }
                         } else {
-                            pendingLine.append(segment)
-                            maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
-                            parseLine(
-                                pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
-                                into: &snapshot,
-                                state: &parserState
-                            )
-                            pendingLine.removeAll(keepingCapacity: false)
+                            let segment = chunk[lineStart..<index]
+                            if pendingLine.count + segment.count > configuration.maximumLineBufferBytes {
+                                appendCapped(segment, to: &pendingLine)
+                                maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
+                                parseLine(
+                                    pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
+                                    into: &snapshot,
+                                    state: &parserState
+                                )
+                                pendingLine.removeAll(keepingCapacity: false)
+                                oversizedLines += 1
+                            } else {
+                                pendingLine.append(segment)
+                                maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
+                                parseLine(
+                                    pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
+                                    into: &snapshot,
+                                    state: &parserState
+                                )
+                                pendingLine.removeAll(keepingCapacity: false)
+                            }
                         }
+
+                        lineStart = chunk.index(after: index)
                     }
-
-                    lineStart = chunk.index(after: index)
+                    index = chunk.index(after: index)
                 }
-                index = chunk.index(after: index)
+
+                if lineStart < chunk.endIndex, skippingOversizedLine == false {
+                    let segment = chunk[lineStart..<chunk.endIndex]
+                    if pendingLine.count + segment.count > configuration.maximumLineBufferBytes {
+                        appendCapped(segment, to: &pendingLine)
+                        maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
+                        // The fields Modex needs occur near the front of Codex JSONL records.
+                        // Parse the retained prefix, then skip the rest of this pathological line.
+                        parseLine(
+                            pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
+                            into: &snapshot,
+                            state: &parserState
+                        )
+                        pendingLine.removeAll(keepingCapacity: false)
+                        oversizedLines += 1
+                        skippingOversizedLine = true
+                    } else {
+                        pendingLine.append(segment)
+                        maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
+                    }
+                }
+
+                return true
             }
-
-            if lineStart < chunk.endIndex, skippingOversizedLine == false {
-                let segment = chunk[lineStart..<chunk.endIndex]
-                if pendingLine.count + segment.count > configuration.maximumLineBufferBytes {
-                    appendCapped(segment, to: &pendingLine)
-                    maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
-                    // The fields Modex needs occur near the front of Codex JSONL records.
-                    // Parse the retained prefix, then skip the rest of this pathological line.
-                    parseLine(
-                        pendingLine[pendingLine.startIndex..<pendingLine.endIndex],
-                        into: &snapshot,
-                        state: &parserState
-                    )
-                    pendingLine.removeAll(keepingCapacity: false)
-                    oversizedLines += 1
-                    skippingOversizedLine = true
-                } else {
-                    pendingLine.append(segment)
-                    maximumBufferedLineBytes = max(maximumBufferedLineBytes, pendingLine.count)
-                }
+            if didRead == false {
+                break
             }
         }
+
+        let rawSnapshot = snapshot
+        let rawParserState = parserState
+        let rawPendingLine = pendingLine
+        let rawSkippingOversizedLine = skippingOversizedLine
 
         if skippingOversizedLine == false, pendingLine.isEmpty == false {
             parseLine(
@@ -795,13 +912,56 @@ private final class FastCodexJSONLParser {
                 threadName: snapshot.threadName,
                 workingDirectory: snapshot.workingDirectory,
                 bytesRead: bytesRead,
-                durationSeconds: Date().timeIntervalSince(startedAt),
+                durationSeconds: ProcessInfo.processInfo.systemUptime - startedAt,
                 tokenEvents: snapshot.tokenEvents.count,
                 compactionEvents: snapshot.compactionEvents,
+                maximumBufferedLineBytes: maximumBufferedLineBytes,
+                oversizedLines: oversizedLines,
+                incrementalBytesSaved: incrementalBytesSaved
+            ),
+            checkpoint: FastParserCheckpoint(
+                snapshot: rawSnapshot,
+                parserState: rawParserState,
+                pendingLine: rawPendingLine,
+                skippingOversizedLine: rawSkippingOversizedLine,
+                processedBytes: processedBytes + parsedBytes,
+                tailFingerprint: tailFingerprint,
                 maximumBufferedLineBytes: maximumBufferedLineBytes,
                 oversizedLines: oversizedLines
             )
         )
+    }
+
+    private func validate(
+        checkpoint: FastParserCheckpoint,
+        using handle: FileHandle,
+        bytesRead: inout Int
+    ) throws -> Bool {
+        let fingerprintSize = checkpoint.tailFingerprint.count
+        guard checkpoint.processedBytes >= fingerprintSize else {
+            return false
+        }
+        guard fingerprintSize > 0 else {
+            return checkpoint.processedBytes == 0
+        }
+
+        try handle.seek(toOffset: UInt64(checkpoint.processedBytes - fingerprintSize))
+        let currentTail = try handle.read(upToCount: fingerprintSize) ?? Data()
+        bytesRead += currentTail.count
+        return currentTail == checkpoint.tailFingerprint
+    }
+
+    private func updateTailFingerprint(with chunk: Data, fingerprint: inout Data) {
+        if chunk.count >= Self.fingerprintSize {
+            fingerprint = Data(chunk.suffix(Self.fingerprintSize))
+            return
+        }
+
+        let overflow = fingerprint.count + chunk.count - Self.fingerprintSize
+        if overflow > 0 {
+            fingerprint.removeFirst(overflow)
+        }
+        fingerprint.append(chunk)
     }
 
     private func appendCapped(_ segment: Data.SubSequence, to pendingLine: inout Data) {

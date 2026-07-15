@@ -14,6 +14,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Before adding new AppKit, evaluate whether the need is true macOS shell/window plumbing rather than UI composition. Good candidates include exact menu-bar window placement, window level/Spaces behavior, focus policy, and status-item geometry. Ask before introducing a new AppKit bridge unless the user has already approved that specific bridge.
 - Keep AppKit out of SwiftUI views where practical. Put bridge code in a small service or adapter, expose an intent-focused API, and keep the SwiftUI call site minimal.
 - Preserve the source layout pattern: `App`, `Core`, `Models`, `Resources`, `Services`, and `UI`.
+- Preserve the scanner layer boundaries documented in `docs/fast-concurrent-scanner-architecture.md`: capability-based discovery, bounded scheduling, streaming parsing, cache/checkpoint reuse, aggregation, history, and presentation must remain independently testable.
 - All visible strings belong in localized resources. Do not add hard-coded English UI strings in SwiftUI views, tooltips, menus, settings, or table headings.
 - Settings should persist through `UserDefaults` via the settings store, not through scattered direct calls from views.
 
@@ -36,16 +37,26 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 ## Performance Guard Rails
 
 - Clicking the menu-bar icon must show usable information immediately. Do not block popover presentation on a fresh scan.
+- Package the normal app as an optimized release binary. Debug builds materially distort parser latency and energy measurements; use them only for deliberate debugging.
 - Refresh data asynchronously and show the last known result while a new scan runs.
 - Scan every eligible active thread by default, with archived threads controlled only by the archive toggle. Do not add an app-level file-count limit.
 - On a cold refresh, prioritize the seven newest threads, publish those rows as each becomes available, and complete that priority set before publishing coalesced updates from the remaining bounded-concurrency scan.
 - JSONL scanning must remain streaming and memory-conscious. Do not load large session files fully into memory.
 - Keep parser code defensive; local Codex JSONL schemas are implementation details and can change.
-- Prefer Codex's newest read-only `state_*.sqlite` index for thread discovery and metadata, with filesystem and `session_index.jsonl` fallbacks for older or changed installations. Never read `first_user_message` or `preview` merely to label or rank threads.
+- Prefer a compatible read-only Codex SQLite thread index for discovery and metadata. Locate databases by file type and identify the index by schema rather than hard-coding versioned filenames such as `state_5.sqlite`; retain filesystem and `session_index.jsonl` fallbacks for older or changed installations. Never read `first_user_message` or `preview` merely to label or rank threads.
 - Scan concurrently, but keep concurrency configurable and visible in instrumentation.
+- Implement concurrency as a refilling bounded task group with at most the configured number of live child tasks. Do not create one task per file and rely on the executor to provide backpressure.
+- Keep parser memory bounded per active task. Drain Foundation temporaries per chunk with `autoreleasepool`, cap cross-chunk line storage, and never retain raw file chunks in the scan cache.
 - Default to active sessions only. Archived sessions should be opt-in because they can be large and old.
-- Use a small, understandable cache keyed by file identity such as path, size, and modification time. Expose cache enabled/disabled, flush, hits, misses, entries, and saved bytes in instrumentation.
-- Instrument facts, not guesses: duration, bytes read, files parsed, parser mode, active/configured concurrency, chunk size, line caps, oversized lines, cache behavior, and slowest files.
+- Use a small, understandable cache keyed by file identity such as path, size, and modification time. Growing append-only logs may resume from a bounded parser checkpoint only after verifying a tail fingerprint; truncation or mutation must fall back to a full parse.
+- Do not write unchanged exact-cache thread snapshots to history on every refresh. Persist changed thread samples and the lightweight scan sample instead.
+- Expose cache enabled/disabled, flush, exact hits, append reuse, entries, and saved bytes in instrumentation.
+- Instrument facts, not guesses: duration, bytes read, files parsed, parser mode, active/configured concurrency, chunk size, line caps, oversized lines, cache behavior, slowest files, process memory, lifetime peak memory, CPU time, wakeups, physical I/O, and context switches.
+- Resource counters belong behind the on-demand instrumentation action. Keep the normal dashboard calm, and label process-wide/lifetime measurements honestly.
+- Prefer actual resource totals from persisted scan samples over extrapolating one scan to an hourly rate. Do not claim watts, energy impact, or whole-app power consumption without a trustworthy public measurement source; CPU time, I/O, wakeups, and context switches are factual proxies.
+- Historical resource views must distinguish latest values, fixed-window totals, and per-scan averages. Weight average CPU load by total CPU time over total wall time, use completion footprints for memory averages/highs, and show the measured sample count.
+- Every compact instrumentation value needs localized, aggregation-specific help. Explain the order of paired values and reveal help in a fixed area that does not resize or cover the metrics.
+- Benchmark scanner changes in optimized release mode against the same corpus and equal concurrency. Compare wall time, peak memory, instructions, cycles, and context switches; benchmark cold parse, exact-cache, and append-resume paths separately.
 - Make slow-file diagnostics identifiable by thread/session name where possible, not only by filename.
 
 ## Menu Bar UX
@@ -138,6 +149,11 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Verify both System and Black themes, and verify light and dark appearances when System is selected.
 
 ## Verification
+
+After completing a user request that changes project files, stage the intended
+changes, create a descriptive commit, and push the current branch unless the
+user explicitly asks not to. Do not create empty commits or include unrelated
+user changes merely to satisfy this workflow.
 
 Before finishing UI or app behavior changes, run the relevant checks:
 

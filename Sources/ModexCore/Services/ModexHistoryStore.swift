@@ -34,10 +34,22 @@ public final class ModexHistoryStore: @unchecked Sendable {
     }
 
     public func record(summary: ModexSummary, sampledAt: Date = Date()) throws {
+        let changedSessionPaths: Set<String>? = summary.scanMetrics.flatMap { metrics in
+            guard metrics.cacheEnabled else {
+                return nil
+            }
+            return Set(
+                metrics.fileMetrics
+                    .filter { $0.cacheHit == false }
+                    .map { $0.fileURL.standardizedFileURL.path }
+            )
+        }
         try execute("BEGIN IMMEDIATE TRANSACTION")
         do {
             try insertScanSample(summary.scanMetrics, sampledAt: sampledAt)
-            for session in summary.sessions {
+            for session in summary.sessions where changedSessionPaths?.contains(
+                session.fileURL.standardizedFileURL.path
+            ) ?? true {
                 try insertThreadSample(session, sampledAt: sampledAt)
             }
             try prune()
@@ -49,7 +61,7 @@ public final class ModexHistoryStore: @unchecked Sendable {
     }
 
     public func snapshot(
-        scanLimit: Int = 120,
+        scanLimit: Int = 400,
         threadSampleLimit: Int = 2_000
     ) throws -> ModexHistorySnapshot {
         let scanSamples = try readScanSamples(limit: scanLimit)
@@ -232,9 +244,36 @@ public final class ModexHistoryStore: @unchecked Sendable {
                 cache_misses INTEGER NOT NULL,
                 cache_entries INTEGER NOT NULL,
                 cache_bytes_saved INTEGER NOT NULL,
-                maximum_concurrent_parses INTEGER NOT NULL
+                maximum_concurrent_parses INTEGER NOT NULL,
+                incremental_files INTEGER NOT NULL DEFAULT 0,
+                incremental_bytes_saved INTEGER NOT NULL DEFAULT 0,
+                process_memory_bytes INTEGER NOT NULL DEFAULT 0,
+                process_peak_memory_bytes INTEGER NOT NULL DEFAULT 0,
+                cpu_time_seconds REAL NOT NULL DEFAULT 0,
+                physical_bytes_read INTEGER NOT NULL DEFAULT 0,
+                physical_bytes_written INTEGER NOT NULL DEFAULT 0,
+                idle_wakeups INTEGER NOT NULL DEFAULT 0,
+                interrupt_wakeups INTEGER NOT NULL DEFAULT 0,
+                voluntary_context_switches INTEGER NOT NULL DEFAULT 0,
+                involuntary_context_switches INTEGER NOT NULL DEFAULT 0
             );
             """
+        )
+        try addColumnsIfNeeded(
+            table: "scan_samples",
+            columns: [
+                ("incremental_files", "INTEGER NOT NULL DEFAULT 0"),
+                ("incremental_bytes_saved", "INTEGER NOT NULL DEFAULT 0"),
+                ("process_memory_bytes", "INTEGER NOT NULL DEFAULT 0"),
+                ("process_peak_memory_bytes", "INTEGER NOT NULL DEFAULT 0"),
+                ("cpu_time_seconds", "REAL NOT NULL DEFAULT 0"),
+                ("physical_bytes_read", "INTEGER NOT NULL DEFAULT 0"),
+                ("physical_bytes_written", "INTEGER NOT NULL DEFAULT 0"),
+                ("idle_wakeups", "INTEGER NOT NULL DEFAULT 0"),
+                ("interrupt_wakeups", "INTEGER NOT NULL DEFAULT 0"),
+                ("voluntary_context_switches", "INTEGER NOT NULL DEFAULT 0"),
+                ("involuntary_context_switches", "INTEGER NOT NULL DEFAULT 0"),
+            ]
         )
         try execute(
             """
@@ -336,6 +375,30 @@ public final class ModexHistoryStore: @unchecked Sendable {
         )
     }
 
+    private func addColumnsIfNeeded(
+        table: String,
+        columns requiredColumns: [(name: String, definition: String)]
+    ) throws {
+        var columns: Set<String> = []
+        try withStatement("PRAGMA table_info(\(table));") { statement in
+            while true {
+                let status = sqlite3_step(statement)
+                if status == SQLITE_DONE {
+                    break
+                }
+                guard status == SQLITE_ROW else {
+                    throw error("inspect \(table) schema")
+                }
+                if let name = text(statement, 1) {
+                    columns.insert(name)
+                }
+            }
+        }
+        for column in requiredColumns where columns.contains(column.name) == false {
+            try execute("ALTER TABLE \(table) ADD COLUMN \(column.name) \(column.definition);")
+        }
+    }
+
     private func insertScanSample(_ metrics: ScanMetrics?, sampledAt: Date) throws {
         guard let metrics else {
             return
@@ -353,8 +416,19 @@ public final class ModexHistoryStore: @unchecked Sendable {
                 cache_misses,
                 cache_entries,
                 cache_bytes_saved,
-                maximum_concurrent_parses
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                maximum_concurrent_parses,
+                incremental_files,
+                incremental_bytes_saved,
+                process_memory_bytes,
+                process_peak_memory_bytes,
+                cpu_time_seconds,
+                physical_bytes_read,
+                physical_bytes_written,
+                idle_wakeups,
+                interrupt_wakeups,
+                voluntary_context_switches,
+                involuntary_context_switches
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
         ) { statement in
             bind(sampledAt, to: statement, at: 1)
@@ -367,6 +441,17 @@ public final class ModexHistoryStore: @unchecked Sendable {
             bind(metrics.cacheEntries, to: statement, at: 8)
             bind(metrics.cacheBytesSaved, to: statement, at: 9)
             bind(metrics.maximumConcurrentParses, to: statement, at: 10)
+            bind(metrics.incrementalFiles, to: statement, at: 11)
+            bind(metrics.incrementalBytesSaved, to: statement, at: 12)
+            bind(Int(clamping: metrics.processMemoryBytes), to: statement, at: 13)
+            bind(Int(clamping: metrics.processPeakMemoryBytes), to: statement, at: 14)
+            bind(metrics.cpuTimeSeconds, to: statement, at: 15)
+            bind(Int(clamping: metrics.physicalBytesRead), to: statement, at: 16)
+            bind(Int(clamping: metrics.physicalBytesWritten), to: statement, at: 17)
+            bind(Int(clamping: metrics.idleWakeups), to: statement, at: 18)
+            bind(Int(clamping: metrics.interruptWakeups), to: statement, at: 19)
+            bind(Int(clamping: metrics.voluntaryContextSwitches), to: statement, at: 20)
+            bind(Int(clamping: metrics.involuntaryContextSwitches), to: statement, at: 21)
             try step(statement)
         }
     }
@@ -460,7 +545,18 @@ public final class ModexHistoryStore: @unchecked Sendable {
                 cache_misses,
                 cache_entries,
                 cache_bytes_saved,
-                maximum_concurrent_parses
+                maximum_concurrent_parses,
+                incremental_files,
+                incremental_bytes_saved,
+                process_memory_bytes,
+                process_peak_memory_bytes,
+                cpu_time_seconds,
+                physical_bytes_read,
+                physical_bytes_written,
+                idle_wakeups,
+                interrupt_wakeups,
+                voluntary_context_switches,
+                involuntary_context_switches
             FROM scan_samples
             ORDER BY sampled_at DESC
             LIMIT ?;
@@ -478,7 +574,18 @@ public final class ModexHistoryStore: @unchecked Sendable {
                 cacheMisses: int(statement, 7),
                 cacheEntries: int(statement, 8),
                 cacheBytesSaved: int(statement, 9),
-                maximumConcurrentParses: int(statement, 10)
+                maximumConcurrentParses: int(statement, 10),
+                incrementalFiles: int(statement, 11),
+                incrementalBytesSaved: int(statement, 12),
+                processMemoryBytes: int(statement, 13),
+                processPeakMemoryBytes: int(statement, 14),
+                cpuTimeSeconds: sqlite3_column_double(statement, 15),
+                physicalBytesRead: int(statement, 16),
+                physicalBytesWritten: int(statement, 17),
+                idleWakeups: int(statement, 18),
+                interruptWakeups: int(statement, 19),
+                voluntaryContextSwitches: int(statement, 20),
+                involuntaryContextSwitches: int(statement, 21)
             )
         }
     }

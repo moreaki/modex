@@ -159,7 +159,7 @@ struct ModexMenuView: View {
                 showingInstrumentation.toggle()
             }
             .popover(isPresented: $showingInstrumentation, arrowEdge: .bottom) {
-                InstrumentationView(metrics: model.latestMetrics)
+                InstrumentationView(metrics: model.latestMetrics, history: model.history)
             }
 
             IconButton(
@@ -2700,9 +2700,32 @@ private struct MiniSparkline: View {
     }
 }
 
+private enum InstrumentationResourcePeriod: String, CaseIterable, Identifiable {
+    case lastRead
+    case oneHour
+    case average
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .lastRead:
+            return ModexStrings.text("instrumentation.lastReadMode")
+        case .oneHour:
+            return ModexStrings.text("instrumentation.oneHour")
+        case .average:
+            return ModexStrings.text("instrumentation.average")
+        }
+    }
+}
+
 private struct InstrumentationView: View {
     let metrics: ScanMetrics?
+    let history: ModexHistorySnapshot?
     @Environment(\.modexPalette) private var palette
+    @State private var resourcePeriod = InstrumentationResourcePeriod.lastRead
+    @State private var resourceHelp: InstrumentationDetail?
+    @State private var parserHelp: InstrumentationDetail?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2710,6 +2733,7 @@ private struct InstrumentationView: View {
 
             if let metrics {
                 metricGrid(metrics)
+                resourceDetails(metrics)
                 parserDetails(metrics)
                 slowestFilesTable(metrics)
             } else {
@@ -2863,20 +2887,68 @@ private struct InstrumentationView: View {
                 spacing: 8
             ) {
                 ForEach(detailRows(metrics)) { detail in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(detail.label)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(palette.mutedText)
-                            .lineLimit(1)
-                        Text(detail.value)
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(palette.secondaryText)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                    InstrumentationDetailCell(detail: detail) { hoveredDetail in
+                        if let hoveredDetail {
+                            parserHelp = hoveredDetail
+                        } else if parserHelp?.id == detail.id {
+                            parserHelp = nil
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+
+            instrumentationHelp(parserHelp)
+        }
+        .padding(10)
+        .background(palette.sidebar.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func resourceDetails(_ metrics: ScanMetrics) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Image(systemName: "leaf")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                    .frame(width: 14)
+                Text(ModexStrings.text("instrumentation.resources"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.secondaryText)
+                Spacer(minLength: 8)
+                Picker("", selection: $resourcePeriod) {
+                    ForEach(InstrumentationResourcePeriod.allCases) { period in
+                        Text(period.title).tag(period)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 204)
+            }
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 8),
+                    GridItem(.flexible(), spacing: 8),
+                    GridItem(.flexible(), spacing: 8),
+                ],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(resourceRows(metrics)) { detail in
+                    InstrumentationDetailCell(detail: detail) { hoveredDetail in
+                        if let hoveredDetail {
+                            resourceHelp = hoveredDetail
+                        } else if resourceHelp?.id == detail.id {
+                            resourceHelp = nil
+                        }
+                    }
+                }
+            }
+
+            instrumentationHelp(resourceHelp, fallback: resourceNote)
+        }
+        .onChange(of: resourcePeriod) {
+            resourceHelp = nil
         }
         .padding(10)
         .background(palette.sidebar.opacity(0.5))
@@ -2999,6 +3071,21 @@ private struct InstrumentationView: View {
         }
     }
 
+    private func instrumentationHelp(
+        _ detail: InstrumentationDetail?,
+        fallback: String? = nil
+    ) -> some View {
+        let text = detail.map { "\($0.label): \($0.help)" } ?? fallback ?? " "
+        return Text(text)
+            .font(.system(size: 9, weight: .regular))
+            .foregroundStyle(palette.mutedText)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity, minHeight: 23, maxHeight: 23, alignment: .topLeading)
+            .opacity(detail == nil && fallback == nil ? 0 : 1)
+            .contentTransition(.opacity)
+            .animation(.easeInOut(duration: 0.12), value: text)
+    }
+
     private func detailRows(_ metrics: ScanMetrics) -> [InstrumentationDetail] {
         let oversizedLines = metrics.fileMetrics.reduce(0) { $0 + $1.oversizedLines }
         let maxBufferedLine = metrics.fileMetrics.map(\.maximumBufferedLineBytes).max() ?? 0
@@ -3006,42 +3093,50 @@ private struct InstrumentationView: View {
             InstrumentationDetail(
                 id: "discovery",
                 label: ModexStrings.text("instrumentation.discovery"),
-                value: discoveryText(metrics.discoveryMode)
+                value: discoveryText(metrics.discoveryMode),
+                help: ModexStrings.text("instrumentation.help.discovery")
             ),
             InstrumentationDetail(
                 id: "metadata",
                 label: ModexStrings.text("instrumentation.metadata"),
-                value: "\(metrics.metadataHits)/\(metrics.filesSelected)"
+                value: "\(metrics.metadataHits)/\(metrics.filesSelected)",
+                help: ModexStrings.text("instrumentation.help.metadata")
             ),
             InstrumentationDetail(
                 id: "parser",
                 label: ModexStrings.text("instrumentation.parser"),
-                value: metrics.parserMode
+                value: metrics.parserMode,
+                help: ModexStrings.text("instrumentation.help.parser")
             ),
             InstrumentationDetail(
                 id: "chunk",
                 label: ModexStrings.text("instrumentation.chunk"),
-                value: formatBytes(metrics.chunkSizeBytes)
+                value: formatBytes(metrics.chunkSizeBytes),
+                help: ModexStrings.text("instrumentation.help.chunk")
             ),
             InstrumentationDetail(
                 id: "line-cap",
                 label: ModexStrings.text("instrumentation.lineCap"),
-                value: formatBytes(metrics.maximumLineBufferBytes)
+                value: formatBytes(metrics.maximumLineBufferBytes),
+                help: ModexStrings.text("instrumentation.help.lineCap")
             ),
             InstrumentationDetail(
                 id: "index-line-cap",
                 label: ModexStrings.text("config.indexLineBuffer"),
-                value: formatBytes(metrics.sessionIndexMaximumLineBufferBytes)
+                value: formatBytes(metrics.sessionIndexMaximumLineBufferBytes),
+                help: ModexStrings.text("instrumentation.help.indexLineBuffer")
             ),
             InstrumentationDetail(
                 id: "peak-line",
                 label: ModexStrings.text("instrumentation.peakLine"),
-                value: formatBytes(maxBufferedLine)
+                value: formatBytes(maxBufferedLine),
+                help: ModexStrings.text("instrumentation.help.peakLine")
             ),
             InstrumentationDetail(
                 id: "oversized",
                 label: ModexStrings.text("instrumentation.oversized"),
-                value: "\(oversizedLines)"
+                value: "\(oversizedLines)",
+                help: ModexStrings.text("instrumentation.help.oversized")
             ),
         ]
         if metrics.sessionIndexBytesRead > 0 {
@@ -3049,7 +3144,8 @@ private struct InstrumentationView: View {
                 InstrumentationDetail(
                     id: "index-read",
                     label: ModexStrings.text("instrumentation.indexRead"),
-                    value: formatBytes(metrics.sessionIndexBytesRead)
+                    value: formatBytes(metrics.sessionIndexBytesRead),
+                    help: ModexStrings.text("instrumentation.help.indexRead")
                 )
             )
         }
@@ -3058,18 +3154,214 @@ private struct InstrumentationView: View {
                 InstrumentationDetail(
                     id: "cache-saved",
                     label: ModexStrings.text("instrumentation.cacheSaved"),
-                    value: formatBytes(metrics.cacheBytesSaved)
+                    value: formatBytes(metrics.cacheBytesSaved),
+                    help: ModexStrings.text("instrumentation.help.cacheSaved")
                 )
             )
             rows.append(
                 InstrumentationDetail(
                     id: "cache-entries",
                     label: ModexStrings.text("instrumentation.cacheEntries"),
-                    value: "\(metrics.cacheEntries)"
+                    value: "\(metrics.cacheEntries)",
+                    help: ModexStrings.text("instrumentation.help.cacheEntries")
+                )
+            )
+            rows.append(
+                InstrumentationDetail(
+                    id: "append-reuse",
+                    label: ModexStrings.text("instrumentation.appendReuse"),
+                    value: "\(metrics.incrementalFiles) · \(formatBytes(metrics.incrementalBytesSaved))",
+                    help: ModexStrings.text("instrumentation.help.appendReuse")
                 )
             )
         }
         return rows
+    }
+
+    private func resourceRows(_ metrics: ScanMetrics) -> [InstrumentationDetail] {
+        switch resourcePeriod {
+        case .oneHour:
+            let totals = history?.scanResourceTotals() ?? ModexScanResourceTotals(
+                scanCount: 0,
+                scanActiveSeconds: 0,
+                cpuTimeSeconds: 0,
+                logicalBytesRead: 0,
+                physicalBytesRead: 0,
+                physicalBytesWritten: 0,
+                idleWakeups: 0,
+                interruptWakeups: 0,
+                voluntaryContextSwitches: 0,
+                involuntaryContextSwitches: 0
+            )
+            return [
+                InstrumentationDetail(
+                    id: "hour-scan-active",
+                    label: ModexStrings.text("instrumentation.scanActive"),
+                    value: formatResourceDuration(totals.scanActiveSeconds),
+                    help: ModexStrings.text("instrumentation.help.hourScanActive")
+                ),
+                InstrumentationDetail(
+                    id: "hour-cpu",
+                    label: ModexStrings.text("instrumentation.cpuTime"),
+                    value: formatResourceDuration(totals.cpuTimeSeconds),
+                    help: ModexStrings.text("instrumentation.help.hourCPUTime")
+                ),
+                InstrumentationDetail(
+                    id: "hour-logical-read",
+                    label: ModexStrings.text("instrumentation.logicalRead"),
+                    value: formatBytes(totals.logicalBytesRead),
+                    help: ModexStrings.text("instrumentation.help.hourLogicalRead")
+                ),
+                InstrumentationDetail(
+                    id: "hour-physical-io",
+                    label: ModexStrings.text("instrumentation.physicalIO"),
+                    value: "\(formatBytes(totals.physicalBytesRead)) / \(formatBytes(totals.physicalBytesWritten))",
+                    help: ModexStrings.text("instrumentation.help.hourPhysicalIO")
+                ),
+                InstrumentationDetail(
+                    id: "hour-wakeups",
+                    label: ModexStrings.text("instrumentation.wakeups"),
+                    value: "\(totals.idleWakeups) / \(totals.interruptWakeups)",
+                    help: ModexStrings.text("instrumentation.help.hourWakeups")
+                ),
+                InstrumentationDetail(
+                    id: "hour-context-switches",
+                    label: ModexStrings.text("instrumentation.contextSwitches"),
+                    value: "\(totals.voluntaryContextSwitches) / \(totals.involuntaryContextSwitches)",
+                    help: ModexStrings.text("instrumentation.help.hourContextSwitches")
+                ),
+            ]
+        case .average:
+            let averages = history?.scanResourceAverages() ?? ModexScanResourceAverages(
+                scanCount: 0,
+                averageMemoryBytes: 0,
+                highestMemoryBytes: 0,
+                averageCPUTimeSeconds: 0,
+                averageCPUPercent: 0,
+                averagePhysicalBytesRead: 0,
+                averagePhysicalBytesWritten: 0,
+                averageIdleWakeups: 0,
+                averageInterruptWakeups: 0,
+                averageVoluntaryContextSwitches: 0,
+                averageInvoluntaryContextSwitches: 0
+            )
+            let unavailable = ModexStrings.text("overview.contextUnavailable")
+            let hasHistory = averages.scanCount > 0
+            return [
+                InstrumentationDetail(
+                    id: "average-memory",
+                    label: ModexStrings.text("instrumentation.averageMemory"),
+                    value: hasHistory ? formatBytes(averages.averageMemoryBytes) : unavailable,
+                    help: ModexStrings.text("instrumentation.help.averageMemory")
+                ),
+                InstrumentationDetail(
+                    id: "highest-memory",
+                    label: ModexStrings.text("instrumentation.highestMemory"),
+                    value: hasHistory ? formatBytes(averages.highestMemoryBytes) : unavailable,
+                    help: ModexStrings.text("instrumentation.help.highestMemory")
+                ),
+                InstrumentationDetail(
+                    id: "average-cpu",
+                    label: ModexStrings.text("instrumentation.cpu"),
+                    value: hasHistory
+                        ? "\(formatDuration(averages.averageCPUTimeSeconds)) · \(Int(averages.averageCPUPercent.rounded()))%"
+                        : unavailable,
+                    help: ModexStrings.text("instrumentation.help.averageCPU")
+                ),
+                InstrumentationDetail(
+                    id: "average-wakeups",
+                    label: ModexStrings.text("instrumentation.wakeups"),
+                    value: hasHistory
+                        ? "\(formatAverageCount(averages.averageIdleWakeups)) / \(formatAverageCount(averages.averageInterruptWakeups))"
+                        : unavailable,
+                    help: ModexStrings.text("instrumentation.help.averageWakeups")
+                ),
+                InstrumentationDetail(
+                    id: "average-physical-io",
+                    label: ModexStrings.text("instrumentation.physicalIO"),
+                    value: hasHistory
+                        ? "\(formatBytes(averages.averagePhysicalBytesRead)) / \(formatBytes(averages.averagePhysicalBytesWritten))"
+                        : unavailable,
+                    help: ModexStrings.text("instrumentation.help.averagePhysicalIO")
+                ),
+                InstrumentationDetail(
+                    id: "average-context-switches",
+                    label: ModexStrings.text("instrumentation.contextSwitches"),
+                    value: hasHistory
+                        ? "\(formatAverageCount(averages.averageVoluntaryContextSwitches)) / \(formatAverageCount(averages.averageInvoluntaryContextSwitches))"
+                        : unavailable,
+                    help: ModexStrings.text("instrumentation.help.averageContextSwitches")
+                ),
+            ]
+        case .lastRead:
+            return [
+                InstrumentationDetail(
+                    id: "memory",
+                    label: ModexStrings.text("instrumentation.memory"),
+                    value: formatBytes(Int(clamping: metrics.processMemoryBytes)),
+                    help: ModexStrings.text("instrumentation.help.memory")
+                ),
+                InstrumentationDetail(
+                    id: "peak-memory",
+                    label: ModexStrings.text("instrumentation.peakMemory"),
+                    value: formatBytes(Int(clamping: metrics.processPeakMemoryBytes)),
+                    help: ModexStrings.text("instrumentation.help.peakMemory")
+                ),
+                InstrumentationDetail(
+                    id: "cpu",
+                    label: ModexStrings.text("instrumentation.cpu"),
+                    value: "\(formatDuration(metrics.cpuTimeSeconds)) · \(Int(metrics.averageCPUPercent.rounded()))%",
+                    help: ModexStrings.text("instrumentation.help.cpu")
+                ),
+                InstrumentationDetail(
+                    id: "wakeups",
+                    label: ModexStrings.text("instrumentation.wakeups"),
+                    value: "\(metrics.idleWakeups) / \(metrics.interruptWakeups)",
+                    help: ModexStrings.text("instrumentation.help.wakeups")
+                ),
+                InstrumentationDetail(
+                    id: "physical-io",
+                    label: ModexStrings.text("instrumentation.physicalIO"),
+                    value: "\(formatBytes(Int(clamping: metrics.physicalBytesRead))) / \(formatBytes(Int(clamping: metrics.physicalBytesWritten)))",
+                    help: ModexStrings.text("instrumentation.help.physicalIO")
+                ),
+                InstrumentationDetail(
+                    id: "context-switches",
+                    label: ModexStrings.text("instrumentation.contextSwitches"),
+                    value: "\(metrics.voluntaryContextSwitches) / \(metrics.involuntaryContextSwitches)",
+                    help: ModexStrings.text("instrumentation.help.contextSwitches")
+                ),
+            ]
+        }
+    }
+
+    private var resourceNote: String {
+        switch resourcePeriod {
+        case .oneHour:
+            return ModexStrings.format(
+                "instrumentation.hourlyNote",
+                history?.scanResourceTotals().scanCount ?? 0
+            )
+        case .average:
+            return ModexStrings.format(
+                "instrumentation.averageNote",
+                history?.scanResourceAverages().scanCount ?? 0
+            )
+        case .lastRead:
+            return ModexStrings.text("instrumentation.resourceNote")
+        }
+    }
+
+    private func formatAverageCount(_ value: Double) -> String {
+        ModexStrings.decimal(value, maximumFractionDigits: 1)
+    }
+
+    private func formatResourceDuration(_ seconds: Double) -> String {
+        guard seconds >= 60 else {
+            return formatDuration(seconds)
+        }
+        let roundedSeconds = Int(seconds.rounded())
+        return "\(roundedSeconds / 60)m \(roundedSeconds % 60)s"
     }
 
     private func slowestFiles(_ metrics: ScanMetrics) -> [FileScanMetrics] {
@@ -3100,6 +3392,67 @@ private struct InstrumentationDetail: Identifiable {
     let id: String
     let label: String
     let value: String
+    let help: String
+}
+
+private struct InstrumentationDetailCell: View {
+    let detail: InstrumentationDetail
+    let onHelpChange: (InstrumentationDetail?) -> Void
+
+    @Environment(\.modexPalette) private var palette
+    @State private var isHovered = false
+    @State private var hoverTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(detail.label)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(palette.mutedText)
+                .lineLimit(1)
+            Text(detail.value)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(palette.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 1)
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(palette.surface.opacity(isHovered ? 0.2 : 0))
+        }
+        .contentShape(Rectangle())
+        .onHover(perform: updateHover)
+        .onDisappear {
+            hoverTask?.cancel()
+            onHelpChange(nil)
+        }
+        .accessibilityHint(Text(detail.help))
+    }
+
+    private func updateHover(_ hovering: Bool) {
+        hoverTask?.cancel()
+        isHovered = hovering
+
+        guard hovering else {
+            onHelpChange(nil)
+            return
+        }
+
+        hoverTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            guard Task.isCancelled == false else {
+                return
+            }
+            onHelpChange(detail)
+        }
+    }
 }
 
 private struct ConfigurationView: View {

@@ -15,7 +15,7 @@ It reads local Codex data from `~/.codex`, uses Codex's read-only state index to
 - Persistent history-backed trend cards and sparklines for context pressure, token growth, scan health, turn size, duration, and failure activity.
 - A detached detail-window Insights tab with deterministic, evidence-backed signals such as high context, failed commands, slow turns, repeated compactions, high cache reuse, slow scans, and cold cache behavior.
 - Calm hover details for full session/project/file information and exact token values.
-- Last-read instrumentation: duration, bytes read, discovery source, metadata coverage, parsed files, active/configured concurrency, parser buffers, cache hits/misses, and slowest files.
+- On-demand instrumentation: last-read latency, memory footprint, lifetime peak memory, CPU time, wakeups, context switches, physical I/O, parser buffers, exact-cache hits, append reuse, actual one-hour totals, and per-scan averages over the last hour.
 
 Codex JSONL schemas are local implementation details, so Modex treats missing or changed fields as absent data and keeps parsing defensive.
 
@@ -50,6 +50,7 @@ open .build/Modex.app
 ```
 
 Raw `swift run modex` can start the app, but the packaged bundle is the more reliable way to get a visible macOS menu-bar item.
+The packaging script builds an optimized release binary by default; use `MODEX_BUILD_CONFIGURATION=debug scripts/package-app.sh` only for a deliberately unoptimized development bundle.
 
 ## Menu-Bar Reading
 
@@ -83,7 +84,7 @@ General settings cover refresh interval, archived-thread inclusion, scan cache e
 
 The Intelligence settings section controls optional Codex-assisted narrative interpretation. Modex remains deterministic and local-first by default: facts, charts, sparklines, and reason-coded insights work without sending prompt text anywhere. When enabled, the Local Codex provider uses `codex exec --ephemeral` with a strict output schema and a compact metrics bundle. The connection test turns green only after a real structured insight response is validated.
 
-Settings are stored in macOS `UserDefaults` under the app domain `ch.moreaki.modex`. The parsed scan cache is intentionally in-memory only and is rebuilt after app restart.
+Settings are stored in macOS `UserDefaults` under the app domain `ch.moreaki.modex`. The parsed scan cache is intentionally in-memory only and is rebuilt after app restart. Growing active JSONL files resume from a verified append checkpoint; rewritten or truncated files automatically fall back to a full streaming parse.
 
 History samples are stored in a compact SQLite database at:
 
@@ -91,13 +92,13 @@ History samples are stored in a compact SQLite database at:
 ~/Library/Application Support/Modex/history.sqlite
 ```
 
-The history store contains derived scan/thread metrics and generated insight summaries, not raw prompt text. Successful Codex insight runs are retained as a small run history while the latest generated result stays quick to display.
+The history store contains derived scan/thread metrics, lightweight per-scan resource counters, and generated insight summaries, not raw prompt text. Successful Codex insight runs are retained as a small run history while the latest generated result stays quick to display.
 
 ## Data Sources
 
 Modex scans:
 
-- the newest `~/.codex/state_*.sqlite` database as a read-only thread index when available
+- a compatible SQLite thread index under `~/.codex` as a read-only metadata source when available; Modex discovers it by schema rather than assuming a versioned filename or fixed subdirectory
 - `~/.codex/sessions` for all active thread histories
 - `~/.codex/archived_sessions` only when archived sessions are enabled
 - `~/.codex/session_index.jsonl` as a legacy title fallback
@@ -146,5 +147,7 @@ open .build/Modex.app
 Screenshots are useful for reviewing SwiftUI menu-bar details that are hard to judge from code alone: status icon rendering, column alignment, hover states, text clipping, focus highlights, and whether the popup shifts unexpectedly.
 
 Parser benchmarks live in `Benchmarks/ParserComparison`. They compare the current Modex streaming parser with alternate JSON parsers without adding benchmark-only dependencies to the app target.
+
+The reusable design and measurement lessons behind discovery, bounded concurrency, streaming memory, progressive publication, exact and append-resume caching, native process counters, and historical resource averages are documented in [Fast Concurrent Scanner Architecture](docs/fast-concurrent-scanner-architecture.md).
 
 The next dashboard/detail-window direction is documented in `docs/dashboard-and-detail-window.md`, with a lightweight clickable prototype in `docs/prototypes/dashboard-detail-prototype.html`. The proposed history store, intelligence metrics, graph overview, and row sparklines are documented in `docs/history-intelligence-and-graphs.md`, with a graph prototype in `docs/prototypes/history-graphs-prototype.html`.

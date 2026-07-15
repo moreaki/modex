@@ -392,6 +392,17 @@ public struct ScanMetrics: Equatable, Sendable {
     public let cacheMisses: Int
     public let cacheEntries: Int
     public let cacheBytesSaved: Int
+    public let incrementalFiles: Int
+    public let incrementalBytesSaved: Int
+    public let processMemoryBytes: UInt64
+    public let processPeakMemoryBytes: UInt64
+    public let cpuTimeSeconds: Double
+    public let physicalBytesRead: UInt64
+    public let physicalBytesWritten: UInt64
+    public let idleWakeups: UInt64
+    public let interruptWakeups: UInt64
+    public let voluntaryContextSwitches: Int64
+    public let involuntaryContextSwitches: Int64
     public let fileMetrics: [FileScanMetrics]
 
     public init(
@@ -413,6 +424,17 @@ public struct ScanMetrics: Equatable, Sendable {
         cacheMisses: Int = 0,
         cacheEntries: Int = 0,
         cacheBytesSaved: Int = 0,
+        incrementalFiles: Int = 0,
+        incrementalBytesSaved: Int = 0,
+        processMemoryBytes: UInt64 = 0,
+        processPeakMemoryBytes: UInt64 = 0,
+        cpuTimeSeconds: Double = 0,
+        physicalBytesRead: UInt64 = 0,
+        physicalBytesWritten: UInt64 = 0,
+        idleWakeups: UInt64 = 0,
+        interruptWakeups: UInt64 = 0,
+        voluntaryContextSwitches: Int64 = 0,
+        involuntaryContextSwitches: Int64 = 0,
         fileMetrics: [FileScanMetrics]
     ) {
         self.parserMode = parserMode
@@ -433,7 +455,25 @@ public struct ScanMetrics: Equatable, Sendable {
         self.cacheMisses = cacheMisses
         self.cacheEntries = cacheEntries
         self.cacheBytesSaved = cacheBytesSaved
+        self.incrementalFiles = incrementalFiles
+        self.incrementalBytesSaved = incrementalBytesSaved
+        self.processMemoryBytes = processMemoryBytes
+        self.processPeakMemoryBytes = processPeakMemoryBytes
+        self.cpuTimeSeconds = cpuTimeSeconds
+        self.physicalBytesRead = physicalBytesRead
+        self.physicalBytesWritten = physicalBytesWritten
+        self.idleWakeups = idleWakeups
+        self.interruptWakeups = interruptWakeups
+        self.voluntaryContextSwitches = voluntaryContextSwitches
+        self.involuntaryContextSwitches = involuntaryContextSwitches
         self.fileMetrics = fileMetrics
+    }
+
+    public var averageCPUPercent: Double {
+        guard durationSeconds > 0 else {
+            return 0
+        }
+        return cpuTimeSeconds / durationSeconds * 100
     }
 }
 
@@ -449,6 +489,7 @@ public struct FileScanMetrics: Equatable, Sendable {
     public let maximumBufferedLineBytes: Int
     public let oversizedLines: Int
     public let cacheHit: Bool
+    public let incrementalBytesSaved: Int
 
     public init(
         fileURL: URL,
@@ -461,7 +502,8 @@ public struct FileScanMetrics: Equatable, Sendable {
         compactionEvents: Int,
         maximumBufferedLineBytes: Int,
         oversizedLines: Int,
-        cacheHit: Bool = false
+        cacheHit: Bool = false,
+        incrementalBytesSaved: Int = 0
     ) {
         self.fileURL = fileURL
         self.sessionID = sessionID
@@ -474,6 +516,7 @@ public struct FileScanMetrics: Equatable, Sendable {
         self.maximumBufferedLineBytes = maximumBufferedLineBytes
         self.oversizedLines = oversizedLines
         self.cacheHit = cacheHit
+        self.incrementalBytesSaved = incrementalBytesSaved
     }
 
     public func withThreadName(_ threadName: String?) -> FileScanMetrics {
@@ -488,7 +531,8 @@ public struct FileScanMetrics: Equatable, Sendable {
             compactionEvents: compactionEvents,
             maximumBufferedLineBytes: maximumBufferedLineBytes,
             oversizedLines: oversizedLines,
-            cacheHit: cacheHit
+            cacheHit: cacheHit,
+            incrementalBytesSaved: incrementalBytesSaved
         )
     }
 
@@ -504,7 +548,8 @@ public struct FileScanMetrics: Equatable, Sendable {
             compactionEvents: compactionEvents,
             maximumBufferedLineBytes: maximumBufferedLineBytes,
             oversizedLines: oversizedLines,
-            cacheHit: true
+            cacheHit: true,
+            incrementalBytesSaved: 0
         )
     }
 }

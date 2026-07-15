@@ -172,12 +172,19 @@ public struct ModexSummaryReportFormatter: Sendable {
                 "scan index line buffer cap: \(formatBytes(metrics.sessionIndexMaximumLineBufferBytes))",
                 "scan max buffered line: \(formatBytes(maxBufferedLineBytes(metrics)))",
                 "scan oversized lines: \(oversizedLines(metrics))",
+                "scan memory footprint: \(formatBytes(Int(clamping: metrics.processMemoryBytes)))",
+                "scan lifetime peak memory: \(formatBytes(Int(clamping: metrics.processPeakMemoryBytes)))",
+                "scan CPU time: \(String(format: "%.3fs", metrics.cpuTimeSeconds)) (\(String(format: "%.1f%%", metrics.averageCPUPercent)) average)",
+                "scan wakeups: \(metrics.idleWakeups) idle / \(metrics.interruptWakeups) interrupt",
+                "scan physical I/O: \(formatBytes(Int(clamping: metrics.physicalBytesRead))) read / \(formatBytes(Int(clamping: metrics.physicalBytesWritten))) written",
+                "scan context switches: \(metrics.voluntaryContextSwitches) voluntary / \(metrics.involuntaryContextSwitches) involuntary",
             ])
             if metrics.cacheEnabled {
                 lines.append(contentsOf: [
                     "scan cache hits: \(metrics.cacheHits)/\(metrics.filesSelected)",
                     "scan cache misses: \(metrics.cacheMisses)",
                     "scan cache saved: \(formatBytes(metrics.cacheBytesSaved))",
+                    "scan append reuse: \(metrics.incrementalFiles) files / \(formatBytes(metrics.incrementalBytesSaved)) saved",
                     "scan cache entries: \(metrics.cacheEntries)",
                 ])
             }

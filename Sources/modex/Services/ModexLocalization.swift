@@ -11,6 +11,14 @@ enum ModexStrings {
         String(format: text(key), locale: localizationLocale, arguments: arguments)
     }
 
+    static func decimal(_ value: Double, maximumFractionDigits: Int) -> String {
+        value.formatted(
+            .number
+                .precision(.fractionLength(0...maximumFractionDigits))
+                .locale(localizationLocale)
+        )
+    }
+
     private static var localizationBundle: Bundle {
         if let languageCode = preferredLanguageCode,
            let bundle = bundle(for: languageCode)

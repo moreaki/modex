@@ -193,7 +193,7 @@ import Testing
     try setModificationDate(Date().addingTimeInterval(-60), for: activeURL)
     try setModificationDate(Date(), for: archivedURL)
     try createCodexStateDatabase(
-        at: codexHome.appendingPathComponent("state_5.sqlite"),
+        at: codexHome.appendingPathComponent("database-cache/current-thread-index.sqlite"),
         rows: [
             StateThreadFixture(
                 id: "active",
@@ -234,6 +234,34 @@ import Testing
     #expect(allResult.sessions.first?.isArchived == true)
 }
 
+@Test func threadDatabaseDiscoveryUsesSchemaAndToleratesOptionalColumns() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
+    let sessionsDirectory = codexHome.appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let sessionURL = sessionsDirectory.appendingPathComponent("minimal.jsonl")
+    try writeSession(id: "minimal", to: sessionURL)
+    try createMinimalThreadDatabase(
+        at: codexHome.appendingPathComponent("local-data/arbitrary-name.sqlite"),
+        sessionID: "minimal",
+        sessionPath: sessionURL.path
+    )
+
+    let result = try await CodexSessionScanner(codexHome: codexHome).scanResult()
+    let session = try #require(result.sessions.first)
+
+    #expect(result.metrics.discoveryMode == "codex-state-db")
+    #expect(result.metrics.metadataHits == 1)
+    #expect(session.threadName == "Minimal indexed thread")
+    #expect(session.isArchived == false)
+    #expect(session.updatedAt == Date(timeIntervalSince1970: 2_000_000_000))
+}
+
 @Test func incompatibleStateDatabaseFallsBackToFilesystemDiscovery() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -246,7 +274,7 @@ import Testing
 
     try writeSession(id: "fallback", to: sessionsDirectory.appendingPathComponent("fallback.jsonl"))
     var database: OpaquePointer?
-    #expect(sqlite3_open(codexHome.appendingPathComponent("state_99.sqlite").path, &database) == SQLITE_OK)
+    #expect(sqlite3_open(codexHome.appendingPathComponent("unrelated-cache.sqlite").path, &database) == SQLITE_OK)
     if let database {
         sqlite3_close(database)
     }
@@ -401,6 +429,9 @@ import Testing
     #expect(result.metrics.chunkSizeBytes == 64 * 1024)
     #expect(result.metrics.maximumLineBufferBytes == 256 * 1024)
     #expect(result.metrics.sessionIndexMaximumLineBufferBytes == 64 * 1024)
+    #expect(result.metrics.processMemoryBytes > 0)
+    #expect(result.metrics.processPeakMemoryBytes >= result.metrics.processMemoryBytes)
+    #expect(result.metrics.cpuTimeSeconds >= 0)
 }
 
 @Test func scanCacheReusesUnchangedSessionFiles() async throws {
@@ -456,6 +487,51 @@ import Testing
         mixed.metrics.configuredMaximumConcurrentParses ==
             CodexSessionScannerConfiguration.default.maximumConcurrentParses
     )
+}
+
+@Test func scanCacheResumesGrowingSessionFilesWithoutReparsingTheirHistory() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
+    let sessionsDirectory = codexHome.appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("growing.jsonl")
+    try writeSession(id: "growing", to: fileURL)
+    let originalSize = try #require(fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+
+    let cache = CodexSessionScanCache()
+    let scanner = CodexSessionScanner(codexHome: codexHome)
+    let cold = try await scanner.scanResult(cache: cache)
+    #expect(cold.sessions.first?.tokenEvents.count == 1)
+
+    let appendedLine = """
+
+    {"timestamp":"2026-06-05T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":300,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":7,"total_tokens":350},"total_token_usage":{"input_tokens":400,"cached_input_tokens":30,"output_tokens":70,"reasoning_output_tokens":12,"total_tokens":470},"model_context_window":1000}}}
+    """
+    let handle = try FileHandle(forWritingTo: fileURL)
+    try handle.seekToEnd()
+    try handle.write(contentsOf: Data(appendedLine.utf8))
+    try handle.close()
+
+    let incremental = try await scanner.scanResult(cache: cache)
+    #expect(incremental.metrics.cacheHits == 0)
+    #expect(incremental.metrics.cacheMisses == 1)
+    #expect(incremental.metrics.incrementalFiles == 1)
+    #expect(incremental.metrics.incrementalBytesSaved == originalSize)
+    #expect(incremental.metrics.bytesRead < originalSize)
+    #expect(incremental.sessions.first?.tokenEvents.count == 2)
+    #expect(incremental.sessions.first?.latestTokenEvent?.totalUsage.totalTokens == 470)
+
+    let replacement = Data((" " + String(data: try Data(contentsOf: fileURL), encoding: .utf8)!).utf8)
+    try replacement.write(to: fileURL, options: .atomic)
+    let rewritten = try await scanner.scanResult(cache: cache)
+    #expect(rewritten.metrics.incrementalFiles == 0)
+    #expect(rewritten.metrics.incrementalBytesSaved == 0)
+    #expect(rewritten.metrics.bytesRead >= replacement.count)
 }
 
 @Test func parsesChunkSpanningJSONLLinesAndRecordsBufferMetrics() async throws {
@@ -625,9 +701,9 @@ import Testing
 
     let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
         .summary()
-    let store = try ModexHistoryStore(
-        databaseURL: temporaryDirectory.appendingPathComponent("history.sqlite")
-    )
+    let historyDatabaseURL = temporaryDirectory.appendingPathComponent("history.sqlite")
+    try createLegacyScanHistoryDatabase(at: historyDatabaseURL)
+    let store = try ModexHistoryStore(databaseURL: historyDatabaseURL)
     try store.record(summary: summary, sampledAt: Date(timeIntervalSince1970: 1_800_000_000))
     try store.record(summary: summary, sampledAt: Date(timeIntervalSince1970: 1_800_000_060))
 
@@ -636,12 +712,31 @@ import Testing
     let samples = snapshot.samples(for: session)
 
     #expect(snapshot.scanSamples.count == 2)
+    let scanMetrics = try #require(summary.scanMetrics)
+    #expect(snapshot.scanSamples.last?.processMemoryBytes == Int(clamping: scanMetrics.processMemoryBytes))
+    #expect(snapshot.scanSamples.last?.cpuTimeSeconds == scanMetrics.cpuTimeSeconds)
     #expect(samples.count == 1)
     #expect(samples.first?.sessionID == "insight")
     #expect(samples.first?.threadName == nil)
     #expect(samples.first?.projectTitle == "insight")
     #expect(samples.first?.contextPercent == 92.0)
     #expect(samples.first?.failedCommandEvents == 3)
+
+    let resourceHistory = ModexHistorySnapshot(
+        generatedAt: Date(timeIntervalSince1970: 1_800_000_060),
+        scanSamples: snapshot.scanSamples
+    )
+    let hourlyResources = resourceHistory.scanResourceTotals()
+    #expect(hourlyResources.scanCount == 2)
+    #expect(hourlyResources.logicalBytesRead == scanMetrics.bytesRead * 2)
+    #expect(abs(hourlyResources.cpuTimeSeconds - scanMetrics.cpuTimeSeconds * 2) < 0.000_001)
+
+    let hourlyAverages = resourceHistory.scanResourceAverages()
+    #expect(hourlyAverages.scanCount == 2)
+    #expect(hourlyAverages.averageMemoryBytes == Int(clamping: scanMetrics.processMemoryBytes))
+    #expect(hourlyAverages.highestMemoryBytes == Int(clamping: scanMetrics.processMemoryBytes))
+    #expect(abs(hourlyAverages.averageCPUTimeSeconds - scanMetrics.cpuTimeSeconds) < 0.000_001)
+    #expect(hourlyAverages.averagePhysicalBytesRead == Int(clamping: scanMetrics.physicalBytesRead))
 
     let agentResult = ModexAgentInsightResult(
         sourceInsightID: "insight-failed-commands",
@@ -766,6 +861,10 @@ private actor ScanProgressRecorder {
 }
 
 private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFixture]) throws {
+    try FileManager.default.createDirectory(
+        at: databaseURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
     var database: OpaquePointer?
     guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
         throw CocoaError(.fileWriteUnknown)
@@ -825,8 +924,72 @@ private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFix
     }
 }
 
+private func createMinimalThreadDatabase(
+    at databaseURL: URL,
+    sessionID: String,
+    sessionPath: String
+) throws {
+    try FileManager.default.createDirectory(
+        at: databaseURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    var database: OpaquePointer?
+    guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+    defer {
+        sqlite3_close(database)
+    }
+
+    let sql = """
+    CREATE TABLE threads (
+        id TEXT PRIMARY KEY,
+        rollout_path TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        title TEXT
+    );
+    INSERT INTO threads VALUES (
+        '\(sqlEscaped(sessionID))',
+        '\(sqlEscaped(sessionPath))',
+        2000000000,
+        'Minimal indexed thread'
+    );
+    """
+    guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+}
+
 private func sqlEscaped(_ value: String) -> String {
     value.replacingOccurrences(of: "'", with: "''")
+}
+
+private func createLegacyScanHistoryDatabase(at databaseURL: URL) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+    defer {
+        sqlite3_close(database)
+    }
+    let sql = """
+    CREATE TABLE scan_samples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sampled_at REAL NOT NULL,
+        duration_seconds REAL NOT NULL,
+        bytes_read INTEGER NOT NULL,
+        files_selected INTEGER NOT NULL,
+        files_parsed INTEGER NOT NULL,
+        cache_hits INTEGER NOT NULL,
+        cache_misses INTEGER NOT NULL,
+        cache_entries INTEGER NOT NULL,
+        cache_bytes_saved INTEGER NOT NULL,
+        maximum_concurrent_parses INTEGER NOT NULL
+    );
+    """
+    guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+        throw CocoaError(.fileWriteUnknown)
+    }
 }
 
 private func writeSession(id: String, to fileURL: URL) throws {

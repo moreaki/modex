@@ -39,6 +39,17 @@ public struct ModexScanHistorySample: Equatable, Sendable, Identifiable {
     public let cacheEntries: Int
     public let cacheBytesSaved: Int
     public let maximumConcurrentParses: Int
+    public let incrementalFiles: Int
+    public let incrementalBytesSaved: Int
+    public let processMemoryBytes: Int
+    public let processPeakMemoryBytes: Int
+    public let cpuTimeSeconds: Double
+    public let physicalBytesRead: Int
+    public let physicalBytesWritten: Int
+    public let idleWakeups: Int
+    public let interruptWakeups: Int
+    public let voluntaryContextSwitches: Int
+    public let involuntaryContextSwitches: Int
 
     public init(
         id: Int64,
@@ -51,7 +62,18 @@ public struct ModexScanHistorySample: Equatable, Sendable, Identifiable {
         cacheMisses: Int,
         cacheEntries: Int,
         cacheBytesSaved: Int,
-        maximumConcurrentParses: Int
+        maximumConcurrentParses: Int,
+        incrementalFiles: Int = 0,
+        incrementalBytesSaved: Int = 0,
+        processMemoryBytes: Int = 0,
+        processPeakMemoryBytes: Int = 0,
+        cpuTimeSeconds: Double = 0,
+        physicalBytesRead: Int = 0,
+        physicalBytesWritten: Int = 0,
+        idleWakeups: Int = 0,
+        interruptWakeups: Int = 0,
+        voluntaryContextSwitches: Int = 0,
+        involuntaryContextSwitches: Int = 0
     ) {
         self.id = id
         self.sampledAt = sampledAt
@@ -64,6 +86,17 @@ public struct ModexScanHistorySample: Equatable, Sendable, Identifiable {
         self.cacheEntries = cacheEntries
         self.cacheBytesSaved = cacheBytesSaved
         self.maximumConcurrentParses = maximumConcurrentParses
+        self.incrementalFiles = incrementalFiles
+        self.incrementalBytesSaved = incrementalBytesSaved
+        self.processMemoryBytes = processMemoryBytes
+        self.processPeakMemoryBytes = processPeakMemoryBytes
+        self.cpuTimeSeconds = cpuTimeSeconds
+        self.physicalBytesRead = physicalBytesRead
+        self.physicalBytesWritten = physicalBytesWritten
+        self.idleWakeups = idleWakeups
+        self.interruptWakeups = interruptWakeups
+        self.voluntaryContextSwitches = voluntaryContextSwitches
+        self.involuntaryContextSwitches = involuntaryContextSwitches
     }
 
     public var cacheHitPercent: Double? {
@@ -71,6 +104,161 @@ public struct ModexScanHistorySample: Equatable, Sendable, Identifiable {
             return nil
         }
         return min(max(Double(cacheHits) / Double(filesSelected) * 100, 0), 100)
+    }
+}
+
+public struct ModexScanResourceTotals: Equatable, Sendable {
+    public let scanCount: Int
+    public let scanActiveSeconds: Double
+    public let cpuTimeSeconds: Double
+    public let logicalBytesRead: Int
+    public let physicalBytesRead: Int
+    public let physicalBytesWritten: Int
+    public let idleWakeups: Int
+    public let interruptWakeups: Int
+    public let voluntaryContextSwitches: Int
+    public let involuntaryContextSwitches: Int
+
+    public init(
+        scanCount: Int,
+        scanActiveSeconds: Double,
+        cpuTimeSeconds: Double,
+        logicalBytesRead: Int,
+        physicalBytesRead: Int,
+        physicalBytesWritten: Int,
+        idleWakeups: Int,
+        interruptWakeups: Int,
+        voluntaryContextSwitches: Int,
+        involuntaryContextSwitches: Int
+    ) {
+        self.scanCount = scanCount
+        self.scanActiveSeconds = scanActiveSeconds
+        self.cpuTimeSeconds = cpuTimeSeconds
+        self.logicalBytesRead = logicalBytesRead
+        self.physicalBytesRead = physicalBytesRead
+        self.physicalBytesWritten = physicalBytesWritten
+        self.idleWakeups = idleWakeups
+        self.interruptWakeups = interruptWakeups
+        self.voluntaryContextSwitches = voluntaryContextSwitches
+        self.involuntaryContextSwitches = involuntaryContextSwitches
+    }
+}
+
+public struct ModexScanResourceAverages: Equatable, Sendable {
+    public let scanCount: Int
+    public let averageMemoryBytes: Int
+    public let highestMemoryBytes: Int
+    public let averageCPUTimeSeconds: Double
+    public let averageCPUPercent: Double
+    public let averagePhysicalBytesRead: Int
+    public let averagePhysicalBytesWritten: Int
+    public let averageIdleWakeups: Double
+    public let averageInterruptWakeups: Double
+    public let averageVoluntaryContextSwitches: Double
+    public let averageInvoluntaryContextSwitches: Double
+
+    public init(
+        scanCount: Int,
+        averageMemoryBytes: Int,
+        highestMemoryBytes: Int,
+        averageCPUTimeSeconds: Double,
+        averageCPUPercent: Double,
+        averagePhysicalBytesRead: Int,
+        averagePhysicalBytesWritten: Int,
+        averageIdleWakeups: Double,
+        averageInterruptWakeups: Double,
+        averageVoluntaryContextSwitches: Double,
+        averageInvoluntaryContextSwitches: Double
+    ) {
+        self.scanCount = scanCount
+        self.averageMemoryBytes = averageMemoryBytes
+        self.highestMemoryBytes = highestMemoryBytes
+        self.averageCPUTimeSeconds = averageCPUTimeSeconds
+        self.averageCPUPercent = averageCPUPercent
+        self.averagePhysicalBytesRead = averagePhysicalBytesRead
+        self.averagePhysicalBytesWritten = averagePhysicalBytesWritten
+        self.averageIdleWakeups = averageIdleWakeups
+        self.averageInterruptWakeups = averageInterruptWakeups
+        self.averageVoluntaryContextSwitches = averageVoluntaryContextSwitches
+        self.averageInvoluntaryContextSwitches = averageInvoluntaryContextSwitches
+    }
+}
+
+public extension ModexHistorySnapshot {
+    func scanResourceTotals(over interval: TimeInterval = 60 * 60) -> ModexScanResourceTotals {
+        let samples = measuredScanSamples(over: interval)
+        return ModexScanResourceTotals(
+            scanCount: samples.count,
+            scanActiveSeconds: samples.reduce(0) { $0 + $1.durationSeconds },
+            cpuTimeSeconds: samples.reduce(0) { $0 + $1.cpuTimeSeconds },
+            logicalBytesRead: samples.reduce(0) { $0 + $1.bytesRead },
+            physicalBytesRead: samples.reduce(0) { $0 + $1.physicalBytesRead },
+            physicalBytesWritten: samples.reduce(0) { $0 + $1.physicalBytesWritten },
+            idleWakeups: samples.reduce(0) { $0 + $1.idleWakeups },
+            interruptWakeups: samples.reduce(0) { $0 + $1.interruptWakeups },
+            voluntaryContextSwitches: samples.reduce(0) { $0 + $1.voluntaryContextSwitches },
+            involuntaryContextSwitches: samples.reduce(0) { $0 + $1.involuntaryContextSwitches }
+        )
+    }
+
+    func scanResourceAverages(over interval: TimeInterval = 60 * 60) -> ModexScanResourceAverages {
+        let samples = measuredScanSamples(over: interval)
+        let count = samples.count
+        guard count > 0 else {
+            return ModexScanResourceAverages(
+                scanCount: 0,
+                averageMemoryBytes: 0,
+                highestMemoryBytes: 0,
+                averageCPUTimeSeconds: 0,
+                averageCPUPercent: 0,
+                averagePhysicalBytesRead: 0,
+                averagePhysicalBytesWritten: 0,
+                averageIdleWakeups: 0,
+                averageInterruptWakeups: 0,
+                averageVoluntaryContextSwitches: 0,
+                averageInvoluntaryContextSwitches: 0
+            )
+        }
+
+        let countDouble = Double(count)
+        let totalDuration = samples.reduce(0) { $0 + $1.durationSeconds }
+        let totalCPUTime = samples.reduce(0) { $0 + $1.cpuTimeSeconds }
+        return ModexScanResourceAverages(
+            scanCount: count,
+            averageMemoryBytes: averageInt(samples, keyPath: \.processMemoryBytes),
+            highestMemoryBytes: samples.map(\.processMemoryBytes).max() ?? 0,
+            averageCPUTimeSeconds: totalCPUTime / countDouble,
+            averageCPUPercent: totalDuration > 0 ? totalCPUTime / totalDuration * 100 : 0,
+            averagePhysicalBytesRead: averageInt(samples, keyPath: \.physicalBytesRead),
+            averagePhysicalBytesWritten: averageInt(samples, keyPath: \.physicalBytesWritten),
+            averageIdleWakeups: Double(samples.reduce(0) { $0 + $1.idleWakeups }) / countDouble,
+            averageInterruptWakeups: Double(samples.reduce(0) { $0 + $1.interruptWakeups }) / countDouble,
+            averageVoluntaryContextSwitches: Double(
+                samples.reduce(0) { $0 + $1.voluntaryContextSwitches }
+            ) / countDouble,
+            averageInvoluntaryContextSwitches: Double(
+                samples.reduce(0) { $0 + $1.involuntaryContextSwitches }
+            ) / countDouble
+        )
+    }
+
+    private func measuredScanSamples(over interval: TimeInterval) -> [ModexScanHistorySample] {
+        let cutoff = generatedAt.addingTimeInterval(-max(0, interval))
+        return scanSamples.filter {
+            $0.sampledAt >= cutoff
+                && $0.sampledAt <= generatedAt
+                && $0.processMemoryBytes > 0
+        }
+    }
+
+    private func averageInt(
+        _ samples: [ModexScanHistorySample],
+        keyPath: KeyPath<ModexScanHistorySample, Int>
+    ) -> Int {
+        let total = samples.reduce(Int64(0)) { partial, sample in
+            partial + Int64(sample[keyPath: keyPath])
+        }
+        return Int((Double(total) / Double(samples.count)).rounded())
     }
 }
 
