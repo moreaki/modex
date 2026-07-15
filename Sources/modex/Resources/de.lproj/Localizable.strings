@@ -268,7 +268,8 @@
 "dashboard.watch" = "beobachten";
 
 "detail.activity" = "Aktivität";
-"detail.activityValue" = "%d Befehle, %d fehlgeschlagen";
+"detail.activityLegend" = "nach fehlgeschlagenen Befehlen · % ist die Sitzungsfehlerrate";
+"detail.activityValue" = "%d fehlgeschlagen / %d Befehle · %@";
 "detail.abortedTurns" = "Abgebrochene Turns";
 "detail.abortedTurnsDetail" = "Turns, die vor dem regulären Abschluss gestoppt wurden.";
 "detail.agentActivity" = "Agent-Aktivität";

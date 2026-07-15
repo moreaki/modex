@@ -268,7 +268,8 @@
 "dashboard.watch" = "watch";
 
 "detail.activity" = "Activity";
-"detail.activityValue" = "%d commands, %d failed";
+"detail.activityLegend" = "ranked by failed commands · % is the session failure rate";
+"detail.activityValue" = "%d failed / %d commands · %@";
 "detail.abortedTurns" = "Aborted turns";
 "detail.abortedTurnsDetail" = "Turns stopped before normal completion.";
 "detail.agentActivity" = "Agent activity";

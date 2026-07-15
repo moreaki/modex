@@ -316,6 +316,13 @@ public struct SessionSnapshot: Equatable, Sendable {
         contextGrowthTokensByEvent.last ?? 0
     }
 
+    public var commandFailurePercent: Double? {
+        guard commandEvents > 0 else {
+            return nil
+        }
+        return Double(failedCommandEvents) / Double(commandEvents) * 100
+    }
+
     public var contextGrowthTokensByEvent: [Int] {
         guard tokenEvents.count > 1 else {
             return []

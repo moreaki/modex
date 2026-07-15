@@ -399,6 +399,7 @@ Every ranked item should expose short reasons such as "85% context", "fast growt
 - Use row sparklines only where they answer "is this rising, falling, spiky, or calm?"
 - Context-growth leaders use one measure throughout: each point is the non-negative change in input-context tokens between consecutive token-count events, and the adjacent value is the latest such change. Do not pair an absolute context value with a cumulative-total sparkline.
 - Performance leaders use actual turn timing events: each point is one recent completed-turn duration, and the adjacent value is the latest duration. Aggregate medians are calculated across all measured events in the current scope, never as a median of per-thread medians or repeated scan snapshots.
+- Activity leaders do not use sparklines. Show failed and total command counts with the directly derived session failure percentage; rank by failed-command count so impact and rate remain distinct and readable.
 - Show exact values in hover/detail surfaces.
 - Keep light and black themes equally polished.
 - Never let graph labels, row values, or hover reveals overlap.

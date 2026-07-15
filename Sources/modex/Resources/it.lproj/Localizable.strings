@@ -268,7 +268,8 @@
 "dashboard.watch" = "osserva";
 
 "detail.activity" = "Attività";
-"detail.activityValue" = "%d comandi, %d falliti";
+"detail.activityLegend" = "ordinato per errori · % è il tasso errori della sessione";
+"detail.activityValue" = "%d falliti / %d comandi · %@";
 "detail.abortedTurns" = "Turni interrotti";
 "detail.abortedTurnsDetail" = "Turni arrestati prima del normale completamento.";
 "detail.agentActivity" = "Attività degli agenti";

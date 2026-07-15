@@ -268,7 +268,8 @@
 "dashboard.watch" = "à surveiller";
 
 "detail.activity" = "Activité";
-"detail.activityValue" = "%d commandes, %d échecs";
+"detail.activityLegend" = "classé par échecs · % est le taux d’échec de la session";
+"detail.activityValue" = "%d échecs / %d commandes · %@";
 "detail.abortedTurns" = "Tours interrompus";
 "detail.abortedTurnsDetail" = "Tours arrêtés avant leur fin normale.";
 "detail.agentActivity" = "Activité des agents";

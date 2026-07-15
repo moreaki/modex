@@ -511,7 +511,8 @@ struct ModexThreadDetailWindow: View {
             ThreadMetricCardsTab(
                 sessions: filteredSessions,
                 cards: activityCards,
-                leaders: activityLeaders
+                leaders: activityLeaders,
+                leaderLegend: ModexStrings.text("detail.activityLegend")
             )
         case .insights:
             ThreadInsightsTab(
@@ -625,11 +626,15 @@ struct ModexThreadDetailWindow: View {
                 return lhs.failedCommandEvents > rhs.failedCommandEvents
             }
             .prefix(8)
-            .map {
+            .map { session in
                 ThreadLeaderRow(
-                    session: $0,
-                    value: ModexStrings.format("detail.activityValue", $0.commandEvents, $0.failedCommandEvents),
-                    trendValues: failedCommandTrendValues(for: $0, history: model.history)
+                    session: session,
+                    value: ModexStrings.format(
+                        "detail.activityValue",
+                        session.failedCommandEvents,
+                        session.commandEvents,
+                        failureRateText(session.commandFailurePercent)
+                    )
                 )
             }
     }
@@ -4897,6 +4902,13 @@ func percentText(_ value: Double?) -> String {
     return "\(Int(value.rounded()))%"
 }
 
+func failureRateText(_ value: Double?) -> String {
+    guard let value else {
+        return ModexStrings.text("overview.contextUnavailable")
+    }
+    return "\(value.formatted(.number.precision(.fractionLength(1))))%"
+}
+
 func millisecondsText(_ milliseconds: Int?) -> String {
     guard let milliseconds else {
         return ModexStrings.text("overview.contextUnavailable")
@@ -5002,19 +5014,6 @@ func durationTrendValues(
     limit: Int = 14
 ) -> [Double] {
     return Array(session.turnDurationsMilliseconds.map(Double.init).suffix(limit))
-}
-
-func failedCommandTrendValues(
-    for session: SessionSnapshot,
-    history: ModexHistorySnapshot?,
-    limit: Int = 14
-) -> [Double] {
-    let values = history?.samples(for: session)
-        .map { Double($0.failedCommandEvents) } ?? []
-    if values.count > 1 {
-        return Array(values.suffix(limit))
-    }
-    return session.failedCommandEvents > 0 ? [0, Double(session.failedCommandEvents)] : []
 }
 
 private func groupedSessions(_ sessions: [SessionSnapshot]) -> [SessionGroup] {
