@@ -228,6 +228,12 @@
 "overview.unknownSession" = "Session inconnue";
 "overview.updated" = "Mis à jour %@";
 
+"projectGroup.collapseHelp" = "Réduire le projet %@";
+"projectGroup.expandHelp" = "Développer le projet %@";
+"projectGroup.threadCountOne" = "1 thread";
+"projectGroup.threadCountMany" = "%d threads";
+"projectGroup.tokenTotal" = "%@ tokens";
+
 "dashboard.threads" = "Threads";
 "dashboard.activity" = "Activité";
 "dashboard.cachedInput" = "Entrée en cache";

@@ -228,6 +228,12 @@
 "overview.unknownSession" = "Unknown session";
 "overview.updated" = "Updated %@";
 
+"projectGroup.collapseHelp" = "Collapse project %@";
+"projectGroup.expandHelp" = "Expand project %@";
+"projectGroup.threadCountOne" = "1 thread";
+"projectGroup.threadCountMany" = "%d threads";
+"projectGroup.tokenTotal" = "%@ tokens";
+
 "dashboard.threads" = "Threads";
 "dashboard.activity" = "Activity";
 "dashboard.cachedInput" = "Cached input";

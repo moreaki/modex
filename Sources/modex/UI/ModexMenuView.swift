@@ -109,15 +109,16 @@ struct ModexMenuView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(sessionGroups) { group in
-                        ProjectGroupHeader(title: group.title)
-                        ForEach(group.sessions) { indexedSession in
-                            SessionRow(
-                                session: indexedSession.session,
-                                index: indexedSession.index,
-                                history: model.history,
-                                thresholds: model.settings.contextThresholds,
-                                sessionDetailHoverDelayMilliseconds: model.settings.sessionDetailHoverDelayMilliseconds
-                            )
+                        ProjectGroupSection(group: group) {
+                            ForEach(group.sessions) { indexedSession in
+                                SessionRow(
+                                    session: indexedSession.session,
+                                    index: indexedSession.index,
+                                    history: model.history,
+                                    thresholds: model.settings.contextThresholds,
+                                    sessionDetailHoverDelayMilliseconds: model.settings.sessionDetailHoverDelayMilliseconds
+                                )
+                            }
                         }
                     }
                 }
@@ -660,15 +661,16 @@ private struct ThreadOverviewTab: View {
             VStack(spacing: 0) {
                 tableHeader
                 ForEach(groupedSessions(sessions)) { group in
-                    ProjectGroupHeader(title: group.title)
-                    ForEach(group.sessions) { indexedSession in
-                        SessionRow(
-                            session: indexedSession.session,
-                            index: indexedSession.index,
-                            history: history,
-                            thresholds: thresholds,
-                            sessionDetailHoverDelayMilliseconds: sessionDetailHoverDelayMilliseconds
-                        )
+                    ProjectGroupSection(group: group) {
+                        ForEach(group.sessions) { indexedSession in
+                            SessionRow(
+                                session: indexedSession.session,
+                                index: indexedSession.index,
+                                history: history,
+                                thresholds: thresholds,
+                                sessionDetailHoverDelayMilliseconds: sessionDetailHoverDelayMilliseconds
+                            )
+                        }
                     }
                 }
             }
@@ -2047,6 +2049,10 @@ private struct SessionGroup: Identifiable {
     let id: String
     let title: String
     let sessions: [IndexedSession]
+
+    var totalTokens: Int {
+        sessions.reduce(0) { $0 + $1.session.totalTokens }
+    }
 }
 
 private struct SessionGroupBuilder {
@@ -2055,21 +2061,103 @@ private struct SessionGroupBuilder {
     var sessions: [IndexedSession]
 }
 
-private struct ProjectGroupHeader: View {
-    let title: String
-    @Environment(\.modexPalette) private var palette
+private struct ProjectGroupSection<Content: View>: View {
+    let group: SessionGroup
+    @ViewBuilder let content: () -> Content
+
+    @State private var isExpanded = true
 
     var body: some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(palette.mutedText)
-                .lineLimit(1)
-            Spacer(minLength: 8)
+        ProjectGroupHeader(
+            title: group.title,
+            threadCount: group.sessions.count,
+            totalTokens: group.totalTokens,
+            isExpanded: isExpanded
+        ) {
+            withAnimation(.easeInOut(duration: 0.14)) {
+                isExpanded.toggle()
+            }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 22)
-        .background(palette.sidebar.opacity(0.92))
+
+        if isExpanded {
+            content()
+        }
+    }
+}
+
+private struct ProjectGroupHeader: View {
+    let title: String
+    let threadCount: Int
+    let totalTokens: Int
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    @Environment(\.modexPalette) private var palette
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 7) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(isHovered ? palette.accent : palette.mutedText)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: 12, height: 12)
+                    .accessibilityHidden(true)
+
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(1)
+
+                Text(threadCountText)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+
+                Rectangle()
+                    .fill(palette.surface.opacity(isHovered ? 0.9 : 0.62))
+                    .frame(height: 0.75)
+
+                Text(tokenTotalText)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+                    .accessibilityLabel(Text(exactTokenTotalText))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .contentShape(Rectangle())
+            .background(isHovered ? palette.surfaceHighlight.opacity(0.36) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(actionHelp)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text("\(threadCountText), \(exactTokenTotalText)"))
+        .accessibilityHint(Text(actionHelp))
+    }
+
+    private var threadCountText: String {
+        if threadCount == 1 {
+            return ModexStrings.text("projectGroup.threadCountOne")
+        }
+        return ModexStrings.format("projectGroup.threadCountMany", threadCount)
+    }
+
+    private var tokenTotalText: String {
+        ModexStrings.format("projectGroup.tokenTotal", compact(totalTokens))
+    }
+
+    private var exactTokenTotalText: String {
+        ModexStrings.format("projectGroup.tokenTotal", totalTokens.formatted())
+    }
+
+    private var actionHelp: String {
+        ModexStrings.format(
+            isExpanded ? "projectGroup.collapseHelp" : "projectGroup.expandHelp",
+            title
+        )
     }
 }
 
