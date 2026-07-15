@@ -352,6 +352,7 @@
 
 "history.cacheHitRate" = "%d%% Cache-Treffer";
 "history.contextPressure" = "Kontextdruck";
+"history.contextDetail" = "%@ von %@ verwendet · %@";
 "history.scanHealth" = "Scan-Zustand";
 "history.tokenGrowth" = "Token-Wachstum";
 

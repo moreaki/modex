@@ -1543,7 +1543,7 @@ private struct DashboardMetricTile: View {
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(palette.mutedText)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 0)
@@ -1666,8 +1666,7 @@ private struct DashboardHistoryPanel: View {
             TrendMiniCard(
                 title: ModexStrings.text("history.contextPressure"),
                 value: percentText(highestContextSession?.contextUsagePercent),
-                detail: highestContextSession.map { $0.threadName ?? projectTitle(for: $0) }
-                    ?? ModexStrings.text("overview.noMetrics"),
+                detail: contextDetail,
                 values: highestContextSession.map { contextTrendValues(for: $0, history: history) } ?? [],
                 color: contextColor
             )
@@ -1707,6 +1706,21 @@ private struct DashboardHistoryPanel: View {
         ModexTheme.contextColor(
             for: highestContextSession?.contextUsagePercent ?? 0,
             thresholds: thresholds
+        )
+    }
+
+    private var contextDetail: String {
+        guard let session = highestContextSession,
+              let usedTokens = session.contextUsedTokens,
+              let contextWindow = session.contextWindow
+        else {
+            return ModexStrings.text("overview.noMetrics")
+        }
+        return ModexStrings.format(
+            "history.contextDetail",
+            compact(usedTokens),
+            compact(contextWindow),
+            projectTitle(for: session)
         )
     }
 
@@ -1751,7 +1765,7 @@ private struct TrendMiniCard: View {
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(palette.secondaryText)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 4)

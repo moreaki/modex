@@ -32,6 +32,7 @@ Components:
   - optional recent trend when enough data exists
 - `InsightStrip`
   - short computed signals such as highest context, largest session, cache ratio, failed commands, slowest turn
+  - compact metric cards use factual supporting text that names the value and scope, such as `221K of 258K used · modex`; an unlabeled thread title must not read like an explanation
 - `TopThreadsPanel`
   - seven most recently active threads, available as the first scan checkpoint
   - each row shows thread name, project, model, reasoning, context, token summary, cached ratio, failed command count, and update age

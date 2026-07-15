@@ -352,6 +352,7 @@
 
 "history.cacheHitRate" = "%d%% hit cache";
 "history.contextPressure" = "Pressione contesto";
+"history.contextDetail" = "%@ di %@ usati · %@";
 "history.scanHealth" = "Salute scan";
 "history.tokenGrowth" = "Crescita token";
 

@@ -77,6 +77,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Do not show the last user prompt text in the main table. It is noisy and not needed for monitoring.
 - Show model, reasoning, and speed per thread when available. Do not show fields like `Summary: auto` unless they have a clear user-facing meaning.
 - Show stale update information honestly. If an update is days or weeks old, prefer relative age such as `3d ago` over a bare clock time that looks current.
+- Keep compact metric-card supporting text factual and self-explanatory. Do not place an unlabeled thread title where it can be mistaken for a diagnosis; put full identifiers in hover or detail surfaces instead.
 - Use hover or secondary surfaces for full paths, full session ids, file paths, exact token counts, and dense diagnostics.
 
 ## Table Design

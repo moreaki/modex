@@ -352,6 +352,7 @@
 
 "history.cacheHitRate" = "%d%% cache hits";
 "history.contextPressure" = "Context pressure";
+"history.contextDetail" = "%@ of %@ used · %@";
 "history.scanHealth" = "Scan health";
 "history.tokenGrowth" = "Token growth";
 
