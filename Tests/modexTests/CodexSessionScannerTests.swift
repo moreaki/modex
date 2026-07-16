@@ -51,6 +51,10 @@ import Testing
     #expect(firstResult.appliedMigrationIDs == ["baseline", "rebuild-derived-data"])
     #expect(operations == ["baseline", "rebuild-derived-data"])
     #expect(defaults.string(forKey: ModexStartupMigrator.lastRunVersionDefaultsKey) == "0.2.0")
+    #expect(
+        defaults.stringArray(forKey: ModexStartupMigrator.appliedMigrationIDsDefaultsKey)
+            == ["baseline", "rebuild-derived-data"]
+    )
 
     operations.removeAll()
     let secondResult = try migrator.migrate(
@@ -61,8 +65,14 @@ import Testing
     #expect(secondResult.appliedMigrationIDs.isEmpty)
     #expect(operations.isEmpty)
 
+    let preparationMigration = ModexStartupMigration(
+        identifier: "prepare-transform",
+        introducedIn: versionThree
+    ) { _ in
+        operations.append("prepare-transform")
+    }
     let failingMigration = ModexStartupMigration(
-        identifier: "failing-transform",
+        identifier: "z-failing-transform",
         introducedIn: versionThree
     ) { _ in
         throw CocoaError(.fileWriteUnknown)
@@ -70,13 +80,76 @@ import Testing
     do {
         _ = try migrator.migrate(
             to: versionThree,
-            migrations: migrations + [failingMigration],
+            migrations: migrations + [preparationMigration, failingMigration],
             context: context
         )
         Issue.record("Expected the failing migration to throw")
     } catch {
         #expect(defaults.string(forKey: ModexStartupMigrator.lastRunVersionDefaultsKey) == "0.2.0")
+        #expect(operations == ["prepare-transform"])
+        #expect(
+            defaults.stringArray(forKey: ModexStartupMigrator.appliedMigrationIDsDefaultsKey)?
+                .contains("prepare-transform") == true
+        )
     }
+
+    operations.removeAll()
+    let recoveredMigration = ModexStartupMigration(
+        identifier: "z-failing-transform",
+        introducedIn: versionThree
+    ) { _ in
+        operations.append("finish-transform")
+    }
+    let recoveryResult = try migrator.migrate(
+        to: versionThree,
+        migrations: migrations + [preparationMigration, recoveredMigration],
+        context: context
+    )
+    #expect(recoveryResult.appliedMigrationIDs == ["z-failing-transform"])
+    #expect(operations == ["finish-transform"])
+    #expect(defaults.string(forKey: ModexStartupMigrator.lastRunVersionDefaultsKey) == "0.3.0")
+}
+
+@Test func builtInMigrationsUpgradeLegacyPreferencesOnce() throws {
+    let suiteName = "ModexBuiltInMigrationTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+    defaults.set("0.1.3", forKey: ModexStartupMigrator.lastRunVersionDefaultsKey)
+    defaults.set(2, forKey: ModexPersistedDefaultsKey.maximumConcurrentParses)
+    defaults.set(100, forKey: ModexPersistedDefaultsKey.obsoleteScanLimit)
+    defaults.set("standard", forKey: ModexPersistedDefaultsKey.intelligenceSpeed)
+
+    let context = ModexMigrationContext(
+        defaults: defaults,
+        applicationSupportURL: FileManager.default.temporaryDirectory
+    )
+    let migrator = ModexStartupMigrator(defaults: defaults)
+    let firstResult = try migrator.migrate(
+        to: .current,
+        migrations: ModexBuiltInMigrations.all(),
+        context: context
+    )
+
+    #expect(firstResult.appliedMigrationIDs == [
+        "adopt-adaptive-read-concurrency",
+        "normalize-legacy-preferences",
+    ])
+    #expect(defaults.object(forKey: ModexPersistedDefaultsKey.maximumConcurrentParses) == nil)
+    #expect(defaults.object(forKey: ModexPersistedDefaultsKey.obsoleteScanLimit) == nil)
+    #expect(defaults.string(forKey: ModexPersistedDefaultsKey.intelligenceSpeed) == "default")
+    #expect(
+        defaults.string(forKey: ModexStartupMigrator.lastRunVersionDefaultsKey)
+            == ModexApplicationVersion.current.description
+    )
+
+    let secondResult = try migrator.migrate(
+        to: .current,
+        migrations: ModexBuiltInMigrations.all(),
+        context: context
+    )
+    #expect(secondResult.appliedMigrationIDs.isEmpty)
 }
 
 @Test func parsesTokenEventsAndComputesSummary() async throws {
@@ -1121,6 +1194,42 @@ import Testing
     #expect(agentRuns.last == agentResult)
 }
 
+@Test func historyStoreMigratesLegacyDatabaseAndPreservesSamples() throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+    try FileManager.default.createDirectory(
+        at: temporaryDirectory,
+        withIntermediateDirectories: true
+    )
+    let databaseURL = temporaryDirectory.appendingPathComponent("history.sqlite")
+    try createLegacyScanHistoryDatabase(
+        at: databaseURL,
+        sampledAt: 1_700_000_000
+    )
+    #expect(try databaseUserVersion(at: databaseURL) == 0)
+
+    do {
+        let store = try ModexHistoryStore(databaseURL: databaseURL)
+        let sample = try #require(store.snapshot().scanSamples.first)
+        #expect(sample.sampledAt == Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(sample.bytesRead == 1_024)
+        #expect(sample.processMemoryBytes == 0)
+    }
+
+    #expect(
+        try databaseUserVersion(at: databaseURL)
+            == ModexHistoryStore.schemaVersion
+    )
+
+    do {
+        let reopenedStore = try ModexHistoryStore(databaseURL: databaseURL)
+        #expect(try reopenedStore.snapshot().scanSamples.count == 1)
+    }
+}
+
 @Test func signalEngineProducesDeterministicInsights() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1564,7 +1673,10 @@ private func sqlEscaped(_ value: String) -> String {
     value.replacingOccurrences(of: "'", with: "''")
 }
 
-private func createLegacyScanHistoryDatabase(at databaseURL: URL) throws {
+private func createLegacyScanHistoryDatabase(
+    at databaseURL: URL,
+    sampledAt: Double? = nil
+) throws {
     var database: OpaquePointer?
     guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
         throw CocoaError(.fileWriteUnknown)
@@ -1572,7 +1684,7 @@ private func createLegacyScanHistoryDatabase(at databaseURL: URL) throws {
     defer {
         sqlite3_close(database)
     }
-    let sql = """
+    var sql = """
     CREATE TABLE scan_samples (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         sampled_at REAL NOT NULL,
@@ -1587,9 +1699,51 @@ private func createLegacyScanHistoryDatabase(at databaseURL: URL) throws {
         maximum_concurrent_parses INTEGER NOT NULL
     );
     """
+    if let sampledAt {
+        sql += """
+
+        INSERT INTO scan_samples (
+            sampled_at,
+            duration_seconds,
+            bytes_read,
+            files_selected,
+            files_parsed,
+            cache_hits,
+            cache_misses,
+            cache_entries,
+            cache_bytes_saved,
+            maximum_concurrent_parses
+        ) VALUES (
+            \(sampledAt), 1.25, 1024, 5, 5, 0, 5, 5, 0, 2
+        );
+        """
+    }
     guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
         throw CocoaError(.fileWriteUnknown)
     }
+}
+
+private func databaseUserVersion(at databaseURL: URL) throws -> Int {
+    var database: OpaquePointer?
+    guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK, let database else {
+        throw CocoaError(.fileReadUnknown)
+    }
+    defer {
+        sqlite3_close(database)
+    }
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(database, "PRAGMA user_version;", -1, &statement, nil) == SQLITE_OK,
+          let statement
+    else {
+        throw CocoaError(.fileReadUnknown)
+    }
+    defer {
+        sqlite3_finalize(statement)
+    }
+    guard sqlite3_step(statement) == SQLITE_ROW else {
+        throw CocoaError(.fileReadUnknown)
+    }
+    return Int(sqlite3_column_int(statement, 0))
 }
 
 private func writeSession(id: String, to fileURL: URL) throws {

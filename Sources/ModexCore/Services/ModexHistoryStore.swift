@@ -236,6 +236,18 @@ public final class ModexHistoryStore: @unchecked Sendable {
         guard existingVersion <= Self.schemaVersion else {
             throw error("database schema \(existingVersion) is newer than supported schema \(Self.schemaVersion)")
         }
+        try execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            try createOrUpgradeCurrentSchema()
+            try execute("PRAGMA user_version = \(Self.schemaVersion);")
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    private func createOrUpgradeCurrentSchema() throws {
         try execute(
             """
             CREATE TABLE IF NOT EXISTS scan_samples (
@@ -378,7 +390,6 @@ public final class ModexHistoryStore: @unchecked Sendable {
             ON agent_insight_runs(generated_at);
             """
         )
-        try execute("PRAGMA user_version = \(Self.schemaVersion);")
     }
 
     private func userVersion() throws -> Int {

@@ -3363,6 +3363,57 @@ private enum InstrumentationResourcePeriod: String, CaseIterable, Identifiable {
     }
 }
 
+private struct InstrumentationResourcePeriodSelector: View {
+    @Binding var selection: InstrumentationResourcePeriod
+    @Environment(\.modexPalette) private var palette
+    @State private var hoveredPeriod: InstrumentationResourcePeriod?
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(InstrumentationResourcePeriod.allCases) { period in
+                Button {
+                    selection = period
+                } label: {
+                    Text(period.title)
+                        .font(.system(size: 10, weight: selection == period ? .semibold : .medium))
+                        .foregroundStyle(selection == period ? palette.accent : palette.secondaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .frame(maxWidth: .infinity, minHeight: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(backgroundColor(for: period))
+                }
+                .onHover { isHovering in
+                    hoveredPeriod = isHovering ? period : nil
+                }
+                .accessibilityAddTraits(selection == period ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(palette.surface.opacity(0.24))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(palette.surface.opacity(0.42), lineWidth: 0.5)
+        }
+        .animation(.easeOut(duration: 0.12), value: selection)
+    }
+
+    private func backgroundColor(for period: InstrumentationResourcePeriod) -> Color {
+        if selection == period {
+            return palette.accent.opacity(0.11)
+        }
+        if hoveredPeriod == period {
+            return palette.surfaceHighlight.opacity(0.65)
+        }
+        return .clear
+    }
+}
+
 private struct InstrumentationView: View {
     let metrics: ScanMetrics?
     let history: ModexHistorySnapshot?
@@ -3559,13 +3610,7 @@ private struct InstrumentationView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(palette.secondaryText)
                 Spacer(minLength: 8)
-                Picker("", selection: $resourcePeriod) {
-                    ForEach(InstrumentationResourcePeriod.allCases) { period in
-                        Text(period.title).tag(period)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
+                InstrumentationResourcePeriodSelector(selection: $resourcePeriod)
                 .frame(width: 204)
             }
 

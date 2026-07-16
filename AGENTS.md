@@ -19,6 +19,8 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Settings should persist through `UserDefaults` via the settings store, not through scattered direct calls from views.
 - Treat `ModexApplicationVersion.current` and its build number as the release source of truth. Keep CLI output and packaged `Info.plist` derived from it, and add an ordered startup migration with a fixed literal introduction version when a release requires cache invalidation or persisted-data transformation. Never register a historical migration against `.current`.
 - Keep application release versions separate from persistence schema versions. Startup migrations coordinate cross-store changes; each SQLite store owns its schema migration and must reject unsupported newer schemas.
+- Give every startup migration a stable unique identifier, keep it idempotent, and persist successful migration IDs so interrupted upgrades resume safely. Any persisted-format change must include an old-format fixture test that proves data preservation and successful idempotent reopening.
+- Version every future persistent cache format. Migrate it when practical; otherwise invalidate only that disposable cache explicitly and rebuild it without touching settings, history, or user-owned data.
 
 ## Swift And Dependency Rules
 

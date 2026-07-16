@@ -21,7 +21,7 @@ enum ModexStartupMigrationCatalog {
             )
             let result = try ModexStartupMigrator(defaults: defaults).migrate(
                 to: .current,
-                migrations: migrations,
+                migrations: ModexBuiltInMigrations.all(),
                 context: context
             )
             if result.appliedMigrationIDs.isEmpty == false {
@@ -32,24 +32,4 @@ enum ModexStartupMigrationCatalog {
         }
     }
 
-    private static let migrations: [ModexStartupMigration] = [
-        ModexStartupMigration(
-            identifier: "version-ledger-baseline",
-            introducedIn: ModexApplicationVersion(major: 0, minor: 1, patch: 0)
-        ) { _ in
-            // Establishes the version ledger. Existing caches are process-local and already start empty.
-        },
-        ModexStartupMigration(
-            identifier: "adopt-adaptive-read-concurrency",
-            introducedIn: ModexApplicationVersion(major: 0, minor: 1, patch: 4)
-        ) { context in
-            let key = ModexSettingsDefaultsKey.maximumConcurrentParses
-            guard context.defaults.object(forKey: key) != nil,
-                  context.defaults.integer(forKey: key) == 2
-            else {
-                return
-            }
-            context.defaults.removeObject(forKey: key)
-        },
-    ]
 }
