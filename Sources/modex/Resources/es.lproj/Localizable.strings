@@ -176,7 +176,7 @@
 "instrumentation.sidebarState" = "Estado de la barra lateral";
 "instrumentation.slowestFiles" = "Archivos más lentos";
 "instrumentation.status" = "Estado";
-"instrumentation.title" = "Última lectura";
+"instrumentation.title" = "Diagnóstico";
 "instrumentation.wakeups" = "Activaciones";
 
 "overview.codexSession" = "Sesión de Codex";
@@ -219,7 +219,6 @@
 "overview.sessionTooltipLabel" = "Sesión: %@";
 "overview.serviceTierLabel" = "Nivel de servicio: %@";
 "overview.sessions" = "%d sesiones";
-"overview.showLastReadTimings" = "Mostrar tiempos de última lectura";
 "overview.reasoningLabel" = "Razonamiento: %@";
 "overview.speedLabel" = "Velocidad: %@";
 "overview.speedRealtime" = "tiempo real";
@@ -287,13 +286,10 @@
 "detail.agentActivityDetail" = "Eventos del ciclo de vida de subagentes registrados por Codex.";
 "detail.allProjects" = "Todos los proyectos";
 "detail.allTasks" = "Todas las tareas";
-"detail.cacheSaved" = "%@ ahorrado por caché";
-"detail.chunkLine" = "bloque %@, línea %@";
 "detail.commands" = "Comandos";
 "detail.commandsDetail" = "Finalizaciones de comandos shell capturadas desde registros de sesión.";
 "detail.completedTurns" = "Turnos completados";
 "detail.completedTurnsDetail" = "Eventos de duración de turnos completados en los hilos mostrados.";
-"detail.diagnostics" = "Diagnóstico";
 "detail.failures" = "Fallos";
 "detail.failuresDetail" = "Comandos completados con un código de salida distinto de cero.";
 "detail.filesChangedDetail" = "Entradas de archivos cambiados vistas en eventos de cambio de Codex.";

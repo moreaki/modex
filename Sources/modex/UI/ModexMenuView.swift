@@ -192,8 +192,8 @@ struct ModexMenuView: View {
             )
 
             IconButton(
-                symbol: "stopwatch",
-                label: ModexStrings.text("overview.showLastReadTimings"),
+                symbol: "stethoscope",
+                label: ModexStrings.text("instrumentation.title"),
                 isEnabled: model.latestMetrics != nil,
                 onHoverLabel: setFooterHint
             ) {
@@ -662,8 +662,6 @@ struct ModexThreadDetailWindow: View {
                 canRequestAgentInsights: model.canRequestAgentInsights,
                 onRequestAgentInsight: onRequestAgentInsight
             )
-        case .diagnostics:
-            ThreadDiagnosticsTab(metrics: model.latestMetrics)
         }
     }
 
@@ -848,7 +846,6 @@ private enum ThreadDetailTab: String, CaseIterable, Identifiable {
     case performance
     case activity
     case insights
-    case diagnostics
 
     var id: String { rawValue }
 
@@ -864,8 +861,6 @@ private enum ThreadDetailTab: String, CaseIterable, Identifiable {
             return ModexStrings.text("detail.activity")
         case .insights:
             return ModexStrings.text("detail.insights")
-        case .diagnostics:
-            return ModexStrings.text("detail.diagnostics")
         }
     }
 
@@ -881,8 +876,6 @@ private enum ThreadDetailTab: String, CaseIterable, Identifiable {
             return "terminal"
         case .insights:
             return "sparkles"
-        case .diagnostics:
-            return "stethoscope"
         }
     }
 }
@@ -1500,95 +1493,6 @@ private struct InsightRowView: View {
             return source
         }
         return ModexStrings.format("insights.nextAction", agentResult.suggestedAction)
-    }
-}
-
-private struct ThreadDiagnosticsTab: View {
-    let metrics: ScanMetrics?
-    @Environment(\.modexPalette) private var palette
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let metrics {
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12),
-                        ],
-                        spacing: 12
-                    ) {
-                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.duration"), value: formatDuration(metrics.durationSeconds), detail: "\(metrics.parserMode) · \(discoveryText(metrics.discoveryMode))"))
-                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.read"), value: formatBytes(metrics.bytesRead), detail: "\(metrics.filesParsed)/\(metrics.filesSelected)"))
-                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.cache"), value: cacheValue(metrics), detail: ModexStrings.format("detail.cacheSaved", formatBytes(metrics.cacheBytesSaved))))
-                        ThreadMetricCardView(card: ThreadMetricCard(title: ModexStrings.text("instrumentation.concurrency"), value: concurrencyValue(metrics), detail: ModexStrings.format("detail.chunkLine", formatBytes(metrics.chunkSizeBytes), formatBytes(metrics.maximumLineBufferBytes))))
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(ModexStrings.text("instrumentation.slowestFiles"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(palette.secondaryText)
-
-                        VStack(spacing: 0) {
-                            ForEach(slowestFiles(metrics), id: \.fileURL) { file in
-                                HStack(spacing: 12) {
-                                    Text(file.threadName ?? fileName(file.fileURL))
-                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(palette.secondaryText)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Spacer()
-                                    Text(formatDuration(file.durationSeconds))
-                                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                        .foregroundStyle(palette.text)
-                                    Text(formatBytes(file.bytesRead))
-                                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                        .foregroundStyle(palette.secondaryText)
-                                        .frame(width: 88, alignment: .trailing)
-                                }
-                                .padding(.horizontal, 12)
-                                .frame(height: 42)
-                                .help(file.fileURL.path)
-                            }
-                        }
-                        .background(palette.sidebar.opacity(0.66))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-                } else {
-                    Text(ModexStrings.text("instrumentation.noCompletedRead"))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(palette.secondaryText)
-                        .padding(20)
-                }
-            }
-            .padding(22)
-        }
-    }
-
-    private func cacheValue(_ metrics: ScanMetrics) -> String {
-        guard metrics.cacheEnabled else {
-            return ModexStrings.text("instrumentation.cacheOff")
-        }
-        return "\(metrics.cacheHits)/\(metrics.filesSelected)"
-    }
-
-    private func concurrencyValue(_ metrics: ScanMetrics) -> String {
-        ModexStrings.format(
-            "instrumentation.concurrencyValue",
-            metrics.maximumConcurrentParses,
-            metrics.configuredMaximumConcurrentParses
-        )
-    }
-
-    private func slowestFiles(_ metrics: ScanMetrics) -> [FileScanMetrics] {
-        Array(
-            metrics.fileMetrics
-                .filter { $0.cacheHit == false }
-                .sorted { $0.durationSeconds > $1.durationSeconds }
-                .prefix(8)
-        )
     }
 }
 
@@ -3454,7 +3358,7 @@ private struct InstrumentationView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "stopwatch")
+            Image(systemName: "stethoscope")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(palette.accent)
                 .frame(width: 30, height: 30)

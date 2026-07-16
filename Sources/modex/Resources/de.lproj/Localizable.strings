@@ -176,7 +176,7 @@
 "instrumentation.sidebarState" = "Seitenleistenstatus";
 "instrumentation.slowestFiles" = "Langsamste Dateien";
 "instrumentation.status" = "Status";
-"instrumentation.title" = "Letzter Lesevorgang";
+"instrumentation.title" = "Diagnostik";
 "instrumentation.wakeups" = "Aufweckvorgänge";
 
 "overview.codexSession" = "Codex-Sitzung";
@@ -219,7 +219,6 @@
 "overview.sessionTooltipLabel" = "Sitzung: %@";
 "overview.serviceTierLabel" = "Serviceklasse: %@";
 "overview.sessions" = "%d Sitzungen";
-"overview.showLastReadTimings" = "Letzte Lesezeiten anzeigen";
 "overview.reasoningLabel" = "Reasoning-Aufwand: %@";
 "overview.speedLabel" = "Geschwindigkeit: %@";
 "overview.speedRealtime" = "Echtzeit";
@@ -287,13 +286,10 @@
 "detail.agentActivityDetail" = "Von Codex erfasste Lebenszyklusereignisse von Unteragenten.";
 "detail.allProjects" = "Alle Projekte";
 "detail.allTasks" = "Alle Aufgaben";
-"detail.cacheSaved" = "%@ durch Cache gespart";
-"detail.chunkLine" = "Chunk %@, Zeile %@";
 "detail.commands" = "Befehle";
 "detail.commandsDetail" = "Shell-Befehlsabschlüsse aus Sitzungsprotokollen.";
 "detail.completedTurns" = "Abgeschlossene Turns";
 "detail.completedTurnsDetail" = "Abschlusszeit-Ereignisse aller angezeigten Threads.";
-"detail.diagnostics" = "Diagnose";
 "detail.failures" = "Fehler";
 "detail.failuresDetail" = "Befehle, die mit einem Exit-Code ungleich null abgeschlossen wurden.";
 "detail.filesChangedDetail" = "Geänderte Dateieinträge aus Codex-Änderungsereignissen.";

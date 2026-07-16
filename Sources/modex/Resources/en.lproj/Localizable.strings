@@ -176,7 +176,7 @@
 "instrumentation.sidebarState" = "Sidebar state";
 "instrumentation.slowestFiles" = "Slowest Files";
 "instrumentation.status" = "Status";
-"instrumentation.title" = "Last Read";
+"instrumentation.title" = "Diagnostics";
 "instrumentation.wakeups" = "Wakeups";
 
 "overview.codexSession" = "Codex Session";
@@ -219,7 +219,6 @@
 "overview.sessionTooltipLabel" = "Session: %@";
 "overview.serviceTierLabel" = "Service tier: %@";
 "overview.sessions" = "%d sessions";
-"overview.showLastReadTimings" = "Show Last Read Timings";
 "overview.reasoningLabel" = "Reasoning: %@";
 "overview.speedLabel" = "Speed: %@";
 "overview.speedRealtime" = "realtime";
@@ -287,13 +286,10 @@
 "detail.agentActivityDetail" = "Sub-agent lifecycle events recorded by Codex.";
 "detail.allProjects" = "All projects";
 "detail.allTasks" = "All tasks";
-"detail.cacheSaved" = "%@ saved by cache";
-"detail.chunkLine" = "chunk %@, line %@";
 "detail.commands" = "Commands";
 "detail.commandsDetail" = "Shell command completions captured from session logs.";
 "detail.completedTurns" = "Completed turns";
 "detail.completedTurnsDetail" = "Completed-turn timing events across displayed threads.";
-"detail.diagnostics" = "Diagnostics";
 "detail.failures" = "Failures";
 "detail.failuresDetail" = "Commands that completed with a non-zero exit code.";
 "detail.filesChangedDetail" = "Changed file entries seen in Codex change events.";
