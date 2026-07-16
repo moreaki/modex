@@ -2,8 +2,11 @@ import Foundation
 import os
 
 public struct CodexSessionScannerConfiguration: Equatable, Sendable {
-    public static let defaultMaximumConcurrentParses = max(1, min(2, ProcessInfo.processInfo.activeProcessorCount))
     public static let maximumAllowedConcurrentParses = max(1, min(16, ProcessInfo.processInfo.activeProcessorCount))
+    public static let defaultMaximumConcurrentParses = min(
+        maximumAllowedConcurrentParses,
+        max(1, ProcessInfo.processInfo.activeProcessorCount / 2)
+    )
     public static let minimumChunkSizeBytes = 16 * 1024
     public static let defaultChunkSizeBytes = 256 * 1024
     public static let maximumAllowedChunkSizeBytes = 4 * 1024 * 1024

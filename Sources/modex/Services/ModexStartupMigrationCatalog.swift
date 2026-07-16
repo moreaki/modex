@@ -39,5 +39,17 @@ enum ModexStartupMigrationCatalog {
         ) { _ in
             // Establishes the version ledger. Existing caches are process-local and already start empty.
         },
+        ModexStartupMigration(
+            identifier: "adopt-adaptive-read-concurrency",
+            introducedIn: ModexApplicationVersion(major: 0, minor: 1, patch: 4)
+        ) { context in
+            let key = ModexSettingsDefaultsKey.maximumConcurrentParses
+            guard context.defaults.object(forKey: key) != nil,
+                  context.defaults.integer(forKey: key) == 2
+            else {
+                return
+            }
+            context.defaults.removeObject(forKey: key)
+        },
     ]
 }

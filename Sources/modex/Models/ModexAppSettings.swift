@@ -298,6 +298,10 @@ struct ModexAppSettings: Equatable, Sendable {
     }
 }
 
+enum ModexSettingsDefaultsKey {
+    static let maximumConcurrentParses = "maximumConcurrentParses"
+}
+
 @MainActor
 final class ModexSettingsStore {
     private enum Key {
@@ -317,7 +321,7 @@ final class ModexSettingsStore {
         static let intelligenceReasoningEffort = "intelligenceReasoningEffort"
         static let intelligenceSpeed = "intelligenceSpeed"
         static let sessionDetailHoverDelayMilliseconds = "sessionDetailHoverDelayMilliseconds"
-        static let maximumConcurrentParses = "maximumConcurrentParses"
+        static let maximumConcurrentParses = ModexSettingsDefaultsKey.maximumConcurrentParses
         static let chunkSizeKB = "chunkSizeKB"
         static let lineBufferKB = "lineBufferKB"
         static let sessionIndexLineBufferKB = "sessionIndexLineBufferKB"

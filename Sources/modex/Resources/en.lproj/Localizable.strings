@@ -80,7 +80,7 @@
 "config.on" = "On";
 "config.parserSection" = "Parser tuning";
 "config.readConcurrency" = "Read Concurrency";
-"config.readConcurrencyHelp" = "Number of JSONL session files Modex parses at the same time.";
+"config.readConcurrencyHelp" = "Number of JSONL session files Modex parses at the same time. Defaults to half of the active CPU cores.";
 "config.recentJSONLFiles" = "Recent JSONL files";
 "config.red" = "Red";
 "config.redHelp" = "Context usage threshold for red warning state.";

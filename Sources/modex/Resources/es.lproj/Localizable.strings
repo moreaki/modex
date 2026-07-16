@@ -80,7 +80,7 @@
 "config.on" = "Activado";
 "config.parserSection" = "Ajustes del parser";
 "config.readConcurrency" = "Concurrencia de lectura";
-"config.readConcurrencyHelp" = "Número de archivos JSONL de sesión que Modex parsea al mismo tiempo.";
+"config.readConcurrencyHelp" = "Número de archivos JSONL de sesión que Modex analiza al mismo tiempo. De forma predeterminada, utiliza la mitad de los núcleos de CPU activos.";
 "config.recentJSONLFiles" = "Archivos JSONL recientes";
 "config.red" = "Rojo";
 "config.redHelp" = "Umbral de uso de contexto para el estado de aviso rojo.";

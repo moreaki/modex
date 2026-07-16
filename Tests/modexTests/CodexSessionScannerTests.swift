@@ -731,6 +731,16 @@ import Testing
     )
 }
 
+@Test func scannerDefaultsToHalfTheActiveCPUCoreCount() {
+    let expected = min(
+        CodexSessionScannerConfiguration.maximumAllowedConcurrentParses,
+        max(1, ProcessInfo.processInfo.activeProcessorCount / 2)
+    )
+
+    #expect(CodexSessionScannerConfiguration.defaultMaximumConcurrentParses == expected)
+    #expect(CodexSessionScannerConfiguration.default.maximumConcurrentParses == expected)
+}
+
 @Test func scanMetricsReflectCustomParserConfiguration() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
