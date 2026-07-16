@@ -52,25 +52,22 @@ private struct ModexMenuBarLabel: View {
     @State private var hoverTask: Task<Void, Never>?
 
     var body: some View {
-        Label {
-            if title.isEmpty == false {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .help(tooltip)
-                    .accessibilityLabel(Text(tooltip))
-            }
-        } icon: {
+        HStack(spacing: 4) {
             ModexStatusIcon(
                 remainingPercent: weeklyWindow?.leftPercent,
                 warningUsagePercent: weeklyWindow?.usedPercent,
                 thresholds: model.settings.contextThresholds
             )
             .frame(width: 18, height: 18)
-            .help(tooltip)
-            .accessibilityLabel(Text(tooltip))
+
+            if title.isEmpty == false {
+                Text(title)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .frame(width: 36, alignment: .trailing)
+            }
         }
-        .labelStyle(.titleAndIcon)
+        .frame(height: 18)
         .help(tooltip)
         .accessibilityLabel(Text(tooltip))
         .onHover(perform: handleHover)

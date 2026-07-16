@@ -59,12 +59,12 @@ struct ModexStatusIcon: View {
         let center = CGPoint(x: pointSize / 2, y: pointSize / 2)
         let radius: CGFloat = pointSize / 2 - 2.5
 
-        context.setStrokeColor(primaryColor(for: colorScheme).copy(alpha: 0.16) ?? CGColor(gray: 1, alpha: 0.16))
-        context.setLineWidth(2)
+        context.setStrokeColor(primaryColor(for: colorScheme).copy(alpha: 0.28) ?? CGColor(gray: 1, alpha: 0.28))
+        context.setLineWidth(2.2)
         context.strokeEllipse(in: CGRect(x: 2.5, y: 2.5, width: 13, height: 13))
 
         context.setStrokeColor(accent)
-        context.setLineWidth(2.3)
+        context.setLineWidth(2.6)
         context.addArc(
             center: center,
             radius: radius,
@@ -74,7 +74,7 @@ struct ModexStatusIcon: View {
         )
         context.strokePath()
 
-        context.setFillColor(accent.copy(alpha: 0.18) ?? accent)
+        context.setFillColor(accent.copy(alpha: 0.24) ?? accent)
         context.fillEllipse(in: CGRect(x: 5.3, y: 5.3, width: 7.4, height: 7.4))
 
         let pulse = CGMutablePath()
@@ -84,6 +84,11 @@ struct ModexStatusIcon: View {
         pulse.addLine(to: mirroredPoint(x: 9.4, y: center.y - 3.1))
         pulse.addLine(to: mirroredPoint(x: 11.2, y: center.y + 1.5))
         pulse.addLine(to: mirroredPoint(x: 13.8, y: center.y + 1.5))
+        context.addPath(pulse)
+        context.setStrokeColor(CGColor(gray: 0, alpha: 0.62))
+        context.setLineWidth(2.35)
+        context.strokePath()
+
         context.addPath(pulse)
         context.setStrokeColor(CGColor(gray: 1, alpha: 0.94))
         context.setLineWidth(1.35)
