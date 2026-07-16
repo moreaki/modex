@@ -1,6 +1,6 @@
 public struct ModexApplicationVersion: Hashable, Comparable, Sendable, CustomStringConvertible {
-    public static let current = ModexApplicationVersion(major: 0, minor: 1, patch: 2)
-    public static let buildNumber = 3
+    public static let current = ModexApplicationVersion(major: 0, minor: 1, patch: 3)
+    public static let buildNumber = 4
 
     public let major: Int
     public let minor: Int

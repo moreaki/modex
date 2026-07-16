@@ -20,6 +20,7 @@ final class ModexApplicationController: ObservableObject {
     private var refreshLoopTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
     private var intelligenceTestTask: Task<Void, Never>?
+    private var intelligenceExecutableTask: Task<Void, Never>?
     private var intelligenceCapabilityTask: Task<Void, Never>?
     private var agentInsightTasks: [String: Task<Void, Never>] = [:]
     private var hasStarted = false
@@ -51,6 +52,7 @@ final class ModexApplicationController: ObservableObject {
         refreshLoopTask?.cancel()
         historyTask?.cancel()
         intelligenceTestTask?.cancel()
+        intelligenceExecutableTask?.cancel()
         intelligenceCapabilityTask?.cancel()
         for task in agentInsightTasks.values {
             task.cancel()
@@ -62,7 +64,7 @@ final class ModexApplicationController: ObservableObject {
             return
         }
         hasStarted = true
-        discoverIntelligenceCapabilities()
+        discoverIntelligenceExecutables()
         refresh()
         scheduleRefreshLoop()
     }
@@ -108,7 +110,13 @@ final class ModexApplicationController: ObservableObject {
         }
 
         if oldSettings.intelligence.codexExecutablePath != settings.intelligence.codexExecutablePath {
-            discoverIntelligenceCapabilities(after: .milliseconds(350))
+            if model.intelligenceExecutables.contains(where: {
+                $0.path == settings.intelligence.codexExecutablePath
+            }) {
+                discoverIntelligenceCapabilities(after: .milliseconds(150))
+            } else {
+                discoverIntelligenceExecutables(after: .milliseconds(350))
+            }
         }
 
         if oldSettings.refreshIntervalSeconds != settings.refreshIntervalSeconds {
@@ -164,6 +172,57 @@ final class ModexApplicationController: ObservableObject {
             }
             intelligenceTestTask = nil
             updateIntelligenceConnection(result, for: intelligence)
+        }
+    }
+
+    private func discoverIntelligenceExecutables(after delay: Duration = .zero) {
+        intelligenceExecutableTask?.cancel()
+        let configuredPath = settings.intelligence.codexExecutablePath
+        model.isDiscoveringIntelligenceExecutables = true
+
+        intelligenceExecutableTask = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            if delay > .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
+
+            let discovery = await LocalCodexExecutableDiscoveryService(
+                configuredPath: configuredPath
+            ).discover()
+            guard Task.isCancelled == false,
+                  settings.intelligence.codexExecutablePath == configuredPath
+            else {
+                return
+            }
+
+            model.intelligenceExecutables = discovery.executables
+            model.isDiscoveringIntelligenceExecutables = false
+            intelligenceExecutableTask = nil
+
+            if configuredPath.contains("/") == false,
+               let resolvedPath = discovery.resolvedConfiguredPath,
+               resolvedPath != configuredPath
+            {
+                let previousConnectionState = model.intelligenceConnectionState
+                var updatedSettings = settings
+                updatedSettings.intelligence.codexExecutablePath = resolvedPath
+                apply(settings: updatedSettings)
+                if case .connected(let verifiedAt) = previousConnectionState {
+                    intelligenceConnectionStore.recordConnected(
+                        at: verifiedAt,
+                        for: settings.intelligence
+                    )
+                    model.intelligenceConnectionState = .connected(verifiedAt)
+                }
+            } else {
+                discoverIntelligenceCapabilities()
+            }
         }
     }
 

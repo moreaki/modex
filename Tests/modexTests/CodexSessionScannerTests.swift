@@ -1145,6 +1145,34 @@ import Testing
     #expect(model.serviceTiers.first?.id == "priority")
 }
 
+@Test func localCodexExecutableDiscoveryReportsConfiguredBinaryVersion() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let executableURL = temporaryDirectory.appendingPathComponent("codex-custom")
+    let script = """
+    #!/bin/sh
+    printf 'codex-cli 7.6.5\\n'
+    """
+    try script.write(to: executableURL, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+
+    let discovery = await LocalCodexExecutableDiscoveryService(
+        configuredPath: executableURL.path
+    ).discover()
+    let executable = try #require(
+        discovery.executables.first(where: { $0.path == executableURL.path })
+    )
+
+    #expect(discovery.resolvedConfiguredPath == executableURL.path)
+    #expect(executable.version == "7.6.5")
+    #expect(executable.source == .custom)
+}
+
 @Test func agentInsightFingerprintIgnoresIncidentalThreadActivity() {
     let original = ModexInsight(
         id: "session-failed-commands",

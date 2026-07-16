@@ -241,6 +241,8 @@ struct ModexMenuView: View {
                 set: { onSettingsChange($0) }
             ),
             intelligenceConnectionState: model.intelligenceConnectionState,
+            intelligenceExecutables: model.intelligenceExecutables,
+            isDiscoveringIntelligenceExecutables: model.isDiscoveringIntelligenceExecutables,
             intelligenceCapabilities: model.intelligenceCapabilities,
             isDiscoveringIntelligenceCapabilities: model.isDiscoveringIntelligenceCapabilities,
             intelligenceCapabilityError: model.intelligenceCapabilityError,
@@ -3933,6 +3935,8 @@ private struct InstrumentationDetailCell: View {
 private struct ConfigurationView: View {
     @Binding var settings: ModexAppSettings
     let intelligenceConnectionState: ModexIntelligenceConnectionState
+    let intelligenceExecutables: [LocalCodexExecutable]
+    let isDiscoveringIntelligenceExecutables: Bool
     let intelligenceCapabilities: LocalCodexCapabilities?
     let isDiscoveringIntelligenceCapabilities: Bool
     let intelligenceCapabilityError: String?
@@ -4285,24 +4289,16 @@ private struct ConfigurationView: View {
                 title: ModexStrings.text("config.intelligenceExecutable"),
                 detail: ModexStrings.text("config.intelligenceExecutableHelp")
             ) {
-                TextField(
-                    ModexStrings.text("config.intelligenceExecutable"),
-                    text: Binding(
+                CodexExecutablePicker(
+                    options: intelligenceExecutableOptions,
+                    selection: Binding(
                         get: { settings.intelligence.codexExecutablePath },
                         set: { settings = updatedSettings(intelligenceCodexExecutablePath: $0) }
-                    )
+                    ),
+                    isDiscovering: isDiscoveringIntelligenceExecutables,
+                    canSelect: intelligenceExecutables.isEmpty == false
                 )
-                .textFieldStyle(.plain)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(palette.text)
-                .padding(.horizontal, 9)
-                .frame(width: 220, height: 30)
-                .background(palette.sidebar.opacity(0.66))
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(palette.surface.opacity(0.45), lineWidth: 0.7)
-                }
+                .frame(width: 220)
             }
 
             stepperRow(
@@ -4626,6 +4622,21 @@ private struct ConfigurationView: View {
         }
     }
 
+    private var intelligenceExecutableOptions: [PaletteSegmentedOption<String>] {
+        var options = intelligenceExecutables.map {
+            PaletteSegmentedOption(value: $0.path, title: executableTitle($0))
+        }
+        if options.contains(where: { $0.value == settings.intelligence.codexExecutablePath }) == false {
+            options.append(
+                PaletteSegmentedOption(
+                    value: settings.intelligence.codexExecutablePath,
+                    title: ModexStrings.text("config.intelligenceExecutableCustom")
+                )
+            )
+        }
+        return options
+    }
+
     private var intelligenceEffortOptions: [PaletteSegmentedOption<String>] {
         guard let selectedIntelligenceModel else {
             return [
@@ -4708,6 +4719,27 @@ private struct ConfigurationView: View {
             return ModexStrings.text("config.intelligenceSpeedFast")
         }
         return tier.name
+    }
+
+    private func executableTitle(_ executable: LocalCodexExecutable) -> String {
+        let sourceKey: String
+        switch executable.source {
+        case .homebrew:
+            sourceKey = "config.intelligenceExecutableHomebrew"
+        case .codexApp:
+            sourceKey = "config.intelligenceExecutableCodexApp"
+        case .chatGPTApp:
+            sourceKey = "config.intelligenceExecutableChatGPTApp"
+        case .commandLine:
+            sourceKey = "config.intelligenceExecutableCommandLine"
+        case .custom:
+            sourceKey = "config.intelligenceExecutableCustom"
+        }
+        return ModexStrings.format(
+            "config.intelligenceExecutableOption",
+            ModexStrings.text(sourceKey),
+            executable.version
+        )
     }
 
     private var canTestIntelligence: Bool {
@@ -4966,6 +4998,91 @@ private struct PaletteMenuPicker<Value: Hashable>: View {
 
     private var selectedTitle: String {
         options.first { $0.value == selection }?.title ?? ""
+    }
+}
+
+private struct CodexExecutablePicker: View {
+    let options: [PaletteSegmentedOption<String>]
+    @Binding var selection: String
+    let isDiscovering: Bool
+    let canSelect: Bool
+
+    @Environment(\.modexPalette) private var palette
+    @FocusState private var isEditingFocused: Bool
+    @State private var isEditing = false
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if isEditing {
+                TextField(
+                    ModexStrings.text("config.intelligenceExecutableCustomPath"),
+                    text: $draft
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(palette.text)
+                .padding(.horizontal, 9)
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .background(palette.sidebar.opacity(0.84))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(palette.accent.opacity(0.72), lineWidth: 0.8)
+                }
+                .focused($isEditingFocused)
+                .onSubmit(commitDraft)
+                .onChange(of: isEditingFocused) { _, focused in
+                    if focused == false, isEditing {
+                        commitDraft()
+                    }
+                }
+            } else {
+                PaletteMenuPicker(
+                    options: options,
+                    selection: $selection,
+                    isEnabled: canSelect && isDiscovering == false
+                )
+                .frame(maxWidth: .infinity)
+                .help(selection)
+            }
+
+            Button {
+                if isEditing {
+                    commitDraft()
+                } else {
+                    draft = selection
+                    isEditing = true
+                    Task { @MainActor in
+                        isEditingFocused = true
+                    }
+                }
+            } label: {
+                Image(systemName: isEditing ? "checkmark" : "pencil")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                    .frame(width: 28, height: 28)
+                    .background(palette.sidebar.opacity(0.84))
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help(
+                ModexStrings.text(
+                    isEditing
+                        ? "config.intelligenceExecutableApplyPath"
+                        : "config.intelligenceExecutableEditPath"
+                )
+            )
+        }
+    }
+
+    private func commitDraft() {
+        let path = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.isEmpty == false {
+            selection = path
+        }
+        isEditing = false
+        isEditingFocused = false
     }
 }
 

@@ -344,7 +344,16 @@
 "config.intelligenceCapabilitiesMalformed" = "The Codex CLI returned an unreadable model list.";
 "config.intelligenceCapabilitiesEmpty" = "The Codex CLI reported no available models.";
 "config.intelligenceExecutable" = "Codex executable";
-"config.intelligenceExecutableHelp" = "Command or absolute path used for local structured insight requests.";
+"config.intelligenceExecutableHelp" = "Binary used for capability discovery and structured insight requests.";
+"config.intelligenceExecutableOption" = "%@ · %@";
+"config.intelligenceExecutableHomebrew" = "Homebrew";
+"config.intelligenceExecutableCodexApp" = "Codex app";
+"config.intelligenceExecutableChatGPTApp" = "ChatGPT app";
+"config.intelligenceExecutableCommandLine" = "Command line";
+"config.intelligenceExecutableCustom" = "Custom";
+"config.intelligenceExecutableCustomPath" = "Absolute path";
+"config.intelligenceExecutableEditPath" = "Edit executable path";
+"config.intelligenceExecutableApplyPath" = "Use executable path";
 "config.intelligenceSection" = "Codex Intelligence";
 "config.intelligenceStatus" = "Connection";
 "config.intelligenceStatusConnected" = "Connected";
