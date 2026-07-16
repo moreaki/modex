@@ -1971,6 +1971,8 @@ private struct DashboardThreadRow: View {
     let sessionDetailHoverDelayMilliseconds: Int
 
     @Environment(\.modexPalette) private var palette
+    @State private var showingActivityDetails = false
+    @State private var isActivityHovered = false
 
     var body: some View {
         HStack(spacing: 16) {
@@ -1999,7 +2001,7 @@ private struct DashboardThreadRow: View {
                 .frame(width: 82, alignment: .trailing)
             dashboardValue(cachedText, label: ModexStrings.text("dashboard.cachedInput"))
                 .frame(width: 78, alignment: .trailing)
-            dashboardValue(activityText, label: ModexStrings.text("dashboard.activity"))
+            activityButton
                 .frame(width: 96, alignment: .trailing)
             UpdatedCell(updatedAt: session.updatedAt)
                 .frame(width: 76, alignment: .trailing)
@@ -2025,6 +2027,32 @@ private struct DashboardThreadRow: View {
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(palette.mutedText)
                 .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+    }
+
+    private var activityButton: some View {
+        Button {
+            showingActivityDetails.toggle()
+        } label: {
+            dashboardValue(activityText, label: activityLabel)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isActivityHovered ? palette.surfaceHighlight.opacity(0.72) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isActivityHovered = hovering
+            }
+        }
+        .accessibilityLabel(Text("\(activityLabel): \(activityText)"))
+        .accessibilityHint(Text(ModexStrings.text("dashboard.activityDrilldownHelp")))
+        .popover(isPresented: $showingActivityDetails, arrowEdge: .trailing) {
+            DashboardActivityDrilldown(session: session)
         }
     }
 
@@ -2066,7 +2094,26 @@ private struct DashboardThreadRow: View {
         if session.commandEvents > 0 {
             return ModexStrings.format("dashboard.commandsShort", session.commandEvents)
         }
-        return ModexStrings.text("dashboard.clean")
+        if session.toolCallEvents > 0 {
+            return ModexStrings.format("dashboard.toolsShort", session.toolCallEvents)
+        }
+        return ModexStrings.text("dashboard.none")
+    }
+
+    private var activityLabel: String {
+        if session.failedCommandEvents > 0 {
+            return ModexStrings.text("dashboard.failures")
+        }
+        if session.changedFileEvents > 0 {
+            return ModexStrings.text("dashboard.filesChanged")
+        }
+        if session.commandEvents > 0 {
+            return ModexStrings.text("detail.commands")
+        }
+        if session.toolCallEvents > 0 {
+            return ModexStrings.text("detail.toolCalls")
+        }
+        return ModexStrings.text("dashboard.activity")
     }
 
     private var sessionTooltip: String {
@@ -2122,6 +2169,383 @@ private struct DashboardThreadRow: View {
             contextWindow.formatted()
         )
     }
+}
+
+private struct DashboardActivityDrilldown: View {
+    let session: SessionSnapshot
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            header
+            summaryGrid
+            additionalSignals
+            failureSection
+
+            Text(ModexStrings.text("dashboard.activityEventNote"))
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(palette.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(width: 480, alignment: .leading)
+        .background(palette.background)
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "terminal")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(palette.accent)
+                .frame(width: 30, height: 30)
+                .background(palette.accent.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ModexStrings.text("dashboard.activityDetails"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                Text(threadTitle)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+        }
+    }
+
+    private var summaryGrid: some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8),
+            ],
+            spacing: 8
+        ) {
+            DashboardActivityMetric(
+                symbol: "terminal",
+                title: ModexStrings.text("detail.commands"),
+                value: session.commandEvents.formatted(),
+                detail: ModexStrings.text("dashboard.commandEvents")
+            )
+            DashboardActivityMetric(
+                symbol: "xmark.octagon",
+                title: ModexStrings.text("dashboard.commandFailures"),
+                value: session.failedCommandEvents.formatted(),
+                detail: ModexStrings.format("dashboard.failureRate", failureRateText(session.commandFailurePercent)),
+                tint: session.failedCommandEvents > 0
+                    ? ModexTheme.criticalContextColor
+                    : ModexTheme.calmContextColor
+            )
+            DashboardActivityMetric(
+                symbol: "doc.badge.arrow.up",
+                title: ModexStrings.text("dashboard.filesChanged"),
+                value: session.changedFileEvents.formatted(),
+                detail: ModexStrings.text("dashboard.fileEvents")
+            )
+            DashboardActivityMetric(
+                symbol: "wrench.and.screwdriver",
+                title: ModexStrings.text("detail.toolCalls"),
+                value: session.toolCallEvents.formatted(),
+                detail: ModexStrings.text("dashboard.toolEvents")
+            )
+        }
+    }
+
+    private var additionalSignals: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(ModexStrings.text("dashboard.moreActivity"))
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(palette.secondaryText)
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), alignment: .leading),
+                    GridItem(.flexible(), alignment: .leading),
+                    GridItem(.flexible(), alignment: .leading),
+                ],
+                spacing: 8
+            ) {
+                compactMetric(ModexStrings.text("detail.patches"), value: session.patchEvents)
+                compactMetric(ModexStrings.text("dashboard.failedPatches"), value: session.failedPatchEvents)
+                compactMetric(ModexStrings.text("dashboard.mcpCalls"), value: session.mcpToolCallEvents)
+                compactMetric(ModexStrings.text("dashboard.webSearches"), value: session.webSearchEvents)
+                compactMetric(ModexStrings.text("detail.agentActivity"), value: session.subagentActivityEvents)
+                compactMetric(ModexStrings.text("detail.abortedTurns"), value: session.abortedTurnEvents)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var failureSection: some View {
+        if session.failedCommandEvents > 0 {
+            Divider()
+                .overlay(palette.surface.opacity(0.7))
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(ModexStrings.text("dashboard.failureSamples"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(palette.secondaryText)
+                    Spacer()
+                    Text(
+                        ModexStrings.format(
+                            "dashboard.failureSampleCoverage",
+                            session.failedCommandSummaries.count,
+                            session.failedCommandEvents
+                        )
+                    )
+                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(palette.mutedText)
+                }
+
+                if failureGroups.isEmpty {
+                    Text(ModexStrings.text("dashboard.failureSamplesUnavailable"))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(palette.mutedText)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(failureGroups) { group in
+                                DashboardFailureGroupRow(group: group)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 190)
+                    .background(palette.sidebar.opacity(0.62))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(palette.surface.opacity(0.48), lineWidth: 0.6)
+                    }
+                }
+            }
+        }
+    }
+
+    private func compactMetric(_ title: String, value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(palette.mutedText)
+                .lineLimit(1)
+            Text(value.formatted())
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(palette.secondaryText)
+                .monospacedDigit()
+        }
+    }
+
+    private var threadTitle: String {
+        if let threadName = session.threadName, threadName.isEmpty == false {
+            return threadName
+        }
+        return projectTitle(for: session)
+    }
+
+    private var failureGroups: [DashboardFailureGroup] {
+        Dictionary(grouping: session.failedCommandSummaries) { summary in
+            DashboardFailureKey(commandName: summary.commandName, exitCode: summary.exitCode)
+        }
+        .map { key, summaries in
+            DashboardFailureGroup(
+                key: key,
+                timestamps: summaries.compactMap(\.timestamp).sorted(by: >),
+                occurrenceCount: summaries.count
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.occurrenceCount != rhs.occurrenceCount {
+                return lhs.occurrenceCount > rhs.occurrenceCount
+            }
+            if lhs.latestTimestamp != rhs.latestTimestamp {
+                return (lhs.latestTimestamp ?? .distantPast) > (rhs.latestTimestamp ?? .distantPast)
+            }
+            return (lhs.key.commandName ?? "") < (rhs.key.commandName ?? "")
+        }
+    }
+}
+
+private struct DashboardActivityMetric: View {
+    let symbol: String
+    let title: String
+    let value: String
+    let detail: String
+    var tint: Color?
+
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint ?? palette.accent)
+                .frame(width: 25, height: 25)
+                .background((tint ?? palette.accent).opacity(0.11))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(value)
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(palette.text)
+                        .monospacedDigit()
+                    Text(detail)
+                        .font(.system(size: 8.5, weight: .medium))
+                        .foregroundStyle(palette.mutedText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .background(palette.sidebar.opacity(0.66))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(palette.surface.opacity(0.45), lineWidth: 0.6)
+        }
+    }
+}
+
+private struct DashboardFailureKey: Hashable {
+    let commandName: String?
+    let exitCode: Int
+}
+
+private struct DashboardFailureGroup: Identifiable {
+    let key: DashboardFailureKey
+    let timestamps: [Date]
+    let occurrenceCount: Int
+
+    var id: String {
+        "\(key.commandName ?? "unknown")|\(key.exitCode)"
+    }
+
+    var latestTimestamp: Date? {
+        timestamps.first
+    }
+}
+
+private struct DashboardFailureGroupRow: View {
+    let group: DashboardFailureGroup
+
+    @Environment(\.modexPalette) private var palette
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(palette.mutedText)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 10)
+
+                    Text(group.key.commandName ?? ModexStrings.text("dashboard.unknownCommand"))
+                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(palette.secondaryText)
+                        .lineLimit(1)
+
+                    Text(ModexStrings.format("dashboard.exitCode", group.key.exitCode))
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(palette.mutedText)
+
+                    Spacer(minLength: 8)
+
+                    Text("×\(group.occurrenceCount)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(palette.secondaryText)
+                        .monospacedDigit()
+
+                    Text(timestampText(group.latestTimestamp))
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(palette.mutedText)
+                        .frame(width: 92, alignment: .trailing)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(group.timestamps.enumerated()), id: \.offset) { _, timestamp in
+                        Text(timestamp.formatted(.dateTime.month(.abbreviated).day().hour().minute().second()))
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(palette.mutedText)
+                    }
+                    if group.timestamps.count < group.occurrenceCount {
+                        Text(
+                            ModexStrings.format(
+                                "dashboard.timestampsUnavailable",
+                                group.occurrenceCount - group.timestamps.count
+                            )
+                        )
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(palette.mutedText)
+                    }
+                }
+                .padding(.leading, 28)
+                .padding(.trailing, 10)
+                .padding(.bottom, 8)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(palette.surface.opacity(0.35))
+                .frame(height: 0.5)
+        }
+    }
+
+    private func timestampText(_ timestamp: Date?) -> String {
+        guard let timestamp else {
+            return ModexStrings.text("dashboard.timeUnavailable")
+        }
+        return timestamp.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+    }
+}
+
+#Preview("Activity drill-down") {
+    let session: SessionSnapshot = {
+        var session = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/activity-preview.jsonl"))
+        session.threadName = "Inspect project behavior"
+        session.commandEvents = 148
+        session.failedCommandEvents = 6
+        session.failedCommandSummaries = [
+            CommandFailureSummary(timestamp: .now.addingTimeInterval(-90), commandName: "swift", exitCode: 1),
+            CommandFailureSummary(timestamp: .now.addingTimeInterval(-180), commandName: "swift", exitCode: 1),
+            CommandFailureSummary(timestamp: .now.addingTimeInterval(-420), commandName: "git", exitCode: 128),
+        ]
+        session.changedFileEvents = 23
+        session.toolCallEvents = 191
+        session.patchEvents = 12
+        session.failedPatchEvents = 1
+        session.mcpToolCallEvents = 4
+        session.webSearchEvents = 3
+        session.subagentActivityEvents = 2
+        session.abortedTurnEvents = 1
+        return session
+    }()
+
+    DashboardActivityDrilldown(session: session)
+        .environment(
+            \.modexPalette,
+            ModexTheme.palette(for: .system, colorScheme: .light)
+        )
 }
 
 private struct CodexRateLimitRow: View {

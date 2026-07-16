@@ -410,7 +410,7 @@ import Testing
     {"timestamp":"2026-07-15T09:00:00.000Z","type":"session_meta","payload":{"id":"current","cwd":"/tmp/current","cli_version":"0.144.3","model_provider":"openai","source":"cli","agent_nickname":"Ada","agent_role":"reviewer","agent_path":"/root/review","parent_thread_id":"parent","thread_source":"subagent","git":{"repository_url":"git@github.com:openai/current.git"}}}
     {"timestamp":"2026-07-15T09:00:01.000Z","type":"session_meta","payload":{"id":"parent","cwd":"/tmp/parent","source":"cli","thread_source":"user"}}
     {"timestamp":"2026-07-15T09:01:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.6-sol","reasoning_effort":"xhigh","service_tier":"fast","personality":"pragmatic","collaboration_mode":{"mode":"default","settings":{}}}}}
-    {"timestamp":"2026-07-15T09:02:00.000Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-exec","name":"exec","input":"{}"}}
+    {"timestamp":"2026-07-15T09:02:00.000Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-exec","name":"exec","input":"const r = await tools.exec_command({cmd:\\\"swift test\\\"}); text(r.output);"}}
     {"timestamp":"2026-07-15T09:03:00.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-exec","output":[{"type":"text","text":"Script failed\\nWall time 0.1 seconds"}]}}
     {"timestamp":"2026-07-15T09:04:00.000Z","type":"event_msg","payload":{"type":"patch_apply_end","success":false,"changes":{"/tmp/current/A.swift":{"type":"modify"}}}}
     {"timestamp":"2026-07-15T09:05:00.000Z","type":"event_msg","payload":{"type":"mcp_tool_call_end","duration":0.2}}
@@ -449,7 +449,7 @@ import Testing
     #expect(session.commandEvents == 1)
     #expect(session.failedCommandEvents == 1)
     #expect(session.commandFailurePercent == 100)
-    #expect(session.failedCommandSummaries.first?.commandName == "exec")
+    #expect(session.failedCommandSummaries.first?.commandName == "swift")
     #expect(session.patchEvents == 1)
     #expect(session.failedPatchEvents == 1)
     #expect(session.changedFileEvents == 1)
@@ -458,6 +458,38 @@ import Testing
     #expect(session.subagentActivityEvents == 1)
     #expect(session.abortedTurnEvents == 1)
     #expect(session.compactionEvents == 2)
+}
+
+@Test func commandFailureSamplesKeepTheLatestBoundedEntries() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("failure-samples.jsonl")
+    var lines = [
+        "{\"timestamp\":\"2026-07-15T09:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"failure-samples\",\"cwd\":\"/tmp/failure-samples\"}}",
+    ]
+    for index in 0..<26 {
+        lines.append(
+            "{\"timestamp\":\"2026-07-15T09:01:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"exec_command_end\",\"exit_code\":1,\"command\":[\"/bin/cmd\(index)\"],\"status\":\"completed\"}}"
+        )
+    }
+    try lines.joined(separator: "\n").write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let session = try #require(
+        try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+            .scan()
+            .first
+    )
+
+    #expect(session.failedCommandEvents == 26)
+    #expect(session.failedCommandSummaries.count == 24)
+    #expect(session.failedCommandSummaries.first?.commandName == "cmd2")
+    #expect(session.failedCommandSummaries.last?.commandName == "cmd25")
 }
 
 @Test func projectIdentityUsesRepositoryOriginAcrossPathsAndProtocols() {

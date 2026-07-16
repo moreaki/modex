@@ -846,6 +846,7 @@ private final class SessionIndexParser {
 private final class FastCodexJSONLParser {
     static let parserMode = "streaming-byte-scan"
     private static let fingerprintSize = 64
+    private static let maximumFailureSamples = 24
 
     private let configuration: CodexSessionScannerConfiguration
 
@@ -1322,7 +1323,7 @@ private final class FastCodexJSONLParser {
         if state.countedCommandCallIDs.insert(callID).inserted {
             snapshot.commandEvents += 1
         }
-        state.pendingCommandNames[callID] = name
+        state.pendingCommandNames[callID] = commandLabel(for: name, in: line)
     }
 
     private func applyToolOutput(
@@ -1381,9 +1382,6 @@ private final class FastCodexJSONLParser {
         snapshot: inout SessionSnapshot
     ) {
         snapshot.failedCommandEvents += 1
-        guard snapshot.failedCommandSummaries.count < 24 else {
-            return
-        }
         snapshot.failedCommandSummaries.append(
             CommandFailureSummary(
                 timestamp: timestamp,
@@ -1391,6 +1389,18 @@ private final class FastCodexJSONLParser {
                 exitCode: exitCode
             )
         )
+        if snapshot.failedCommandSummaries.count > Self.maximumFailureSamples {
+            snapshot.failedCommandSummaries.removeFirst()
+        }
+    }
+
+    private func commandLabel(for toolName: String, in line: Data.SubSequence) -> String {
+        guard let command = FastJSONValue.commandPrefix(in: line),
+              let label = sanitizedCommandName(command)
+        else {
+            return toolName
+        }
+        return label
     }
 
     private func sanitizedCommandName(_ command: String?) -> String? {
@@ -1525,6 +1535,39 @@ private enum FastJSONValue {
             index = bytes.index(after: index)
         }
         return output.isEmpty ? nil : String(decoding: output, as: UTF8.self)
+    }
+
+    static func commandPrefix(in bytes: Data.SubSequence) -> String? {
+        for pattern in FastJSONPattern.commandPrefixes {
+            guard let range = range(of: pattern, in: bytes) else {
+                continue
+            }
+
+            var output: [UInt8] = []
+            output.reserveCapacity(32)
+            var index = range.upperBound
+            while index < bytes.endIndex, output.count < 96 {
+                let byte = bytes[index]
+                if byte == FastJSONPattern.space
+                    || byte == FastJSONPattern.tab
+                    || byte == FastJSONPattern.lineFeed
+                    || byte == FastJSONPattern.carriageReturn
+                    || byte == FastJSONPattern.quote
+                    || byte == FastJSONPattern.backslash
+                    || byte == FastJSONPattern.semicolon
+                    || byte == FastJSONPattern.ampersand
+                    || byte == FastJSONPattern.pipe
+                {
+                    break
+                }
+                output.append(byte)
+                index = bytes.index(after: index)
+            }
+            if output.isEmpty == false {
+                return String(decoding: output, as: UTF8.self)
+            }
+        }
+        return nil
     }
 
     static func int(after pattern: [UInt8], in bytes: Data.SubSequence) -> Int? {
@@ -1978,17 +2021,22 @@ private enum FastJSONPattern {
     static let lineFeed: UInt8 = 10
     static let space: UInt8 = 32
     static let quote: UInt8 = 34
+    static let ampersand: UInt8 = 38
     static let plus: UInt8 = 43
     static let comma: UInt8 = 44
     static let minus: UInt8 = 45
     static let slash: UInt8 = 47
     static let dot: UInt8 = 46
     static let colon: UInt8 = 58
+    static let semicolon: UInt8 = 59
     static let uppercaseT: UInt8 = 84
     static let uppercaseZ: UInt8 = 90
     static let zero: UInt8 = 48
     static let nine: UInt8 = 57
     static let backslash: UInt8 = 92
+    static let tab: UInt8 = 9
+    static let carriageReturn: UInt8 = 13
+    static let pipe: UInt8 = 124
     static let openBrace: UInt8 = 123
     static let closeBracket: UInt8 = 93
     static let closeBrace: UInt8 = 125
@@ -2030,6 +2078,12 @@ private enum FastJSONPattern {
     static let timeToFirstTokenMilliseconds = Array("\"time_to_first_token_ms\":".utf8)
     static let exitCode = Array("\"exit_code\":".utf8)
     static let command = Array("\"command\":[".utf8)
+    // Matches current JavaScript tool input plus escaped and direct JSON argument forms.
+    static let commandPrefixes: [[UInt8]] = [
+        Array(#"cmd:\""#.utf8),
+        Array(#"cmd\":\""#.utf8),
+        Array(#"cmd":""#.utf8),
+    ]
     static let callID = Array("\"call_id\":\"".utf8)
     static let name = Array("\"name\":\"".utf8)
     static let output = Array("\"output\":\"".utf8)
