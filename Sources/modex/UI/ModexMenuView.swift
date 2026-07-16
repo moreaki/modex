@@ -241,6 +241,9 @@ struct ModexMenuView: View {
                 set: { onSettingsChange($0) }
             ),
             intelligenceConnectionState: model.intelligenceConnectionState,
+            intelligenceCapabilities: model.intelligenceCapabilities,
+            isDiscoveringIntelligenceCapabilities: model.isDiscoveringIntelligenceCapabilities,
+            intelligenceCapabilityError: model.intelligenceCapabilityError,
             initialSection: initialSection,
             onOpenCodexFolder: onOpenCodexFolder,
             onFlushScanCache: onFlushScanCache,
@@ -3930,6 +3933,9 @@ private struct InstrumentationDetailCell: View {
 private struct ConfigurationView: View {
     @Binding var settings: ModexAppSettings
     let intelligenceConnectionState: ModexIntelligenceConnectionState
+    let intelligenceCapabilities: LocalCodexCapabilities?
+    let isDiscoveringIntelligenceCapabilities: Bool
+    let intelligenceCapabilityError: String?
     let initialSection: Int
     let onOpenCodexFolder: () -> Void
     let onFlushScanCache: () -> Void
@@ -4219,6 +4225,61 @@ private struct ConfigurationView: View {
             }
 
             settingsRow(
+                icon: "cpu",
+                tint: .cyan,
+                title: ModexStrings.text("config.intelligenceModel"),
+                detail: intelligenceModelDetail
+            ) {
+                PaletteMenuPicker(
+                    options: intelligenceModelOptions,
+                    selection: Binding(
+                        get: { settings.intelligence.model },
+                        set: { settings = settingsSelectingIntelligenceModel($0) }
+                    ),
+                    isEnabled: intelligenceCapabilities != nil
+                )
+                .frame(width: 220)
+            }
+
+            settingsRow(
+                icon: "brain",
+                tint: .cyan,
+                title: ModexStrings.text("config.intelligenceEffort"),
+                detail: ModexStrings.text("config.intelligenceEffortHelp")
+            ) {
+                PaletteMenuPicker(
+                    options: intelligenceEffortOptions,
+                    selection: Binding(
+                        get: { settings.intelligence.reasoningEffort },
+                        set: { settings = updatedSettings(intelligenceReasoningEffort: $0) }
+                    ),
+                    isEnabled: selectedIntelligenceModel != nil
+                )
+                .frame(width: 220)
+            }
+
+            settingsRow(
+                icon: "gauge.with.dots.needle.67percent",
+                tint: .cyan,
+                title: ModexStrings.text("config.intelligenceSpeed"),
+                detail: ModexStrings.text(
+                    intelligenceSpeedOptions.count > 1
+                        ? "config.intelligenceSpeedHelp"
+                        : "config.intelligenceSpeedUnavailableHelp"
+                )
+            ) {
+                PaletteMenuPicker(
+                    options: intelligenceSpeedOptions,
+                    selection: Binding(
+                        get: { settings.intelligence.speed },
+                        set: { settings = updatedSettings(intelligenceSpeed: $0) }
+                    ),
+                    isEnabled: intelligenceSpeedOptions.count > 1
+                )
+                .frame(width: 220)
+            }
+
+            settingsRow(
                 icon: "terminal",
                 tint: .cyan,
                 title: ModexStrings.text("config.intelligenceExecutable"),
@@ -4467,6 +4528,9 @@ private struct ConfigurationView: View {
         intelligenceProvider: ModexIntelligenceProvider? = nil,
         intelligenceCodexExecutablePath: String? = nil,
         intelligenceTimeoutSeconds: Int? = nil,
+        intelligenceModel: String? = nil,
+        intelligenceReasoningEffort: String? = nil,
+        intelligenceSpeed: String? = nil,
         sessionDetailHoverDelayMilliseconds: Int? = nil,
         maximumConcurrentParses: Int? = nil,
         chunkSizeKB: Int? = nil,
@@ -4517,6 +4581,15 @@ private struct ConfigurationView: View {
         if let intelligenceTimeoutSeconds {
             next.intelligence.timeoutSeconds = intelligenceTimeoutSeconds
         }
+        if let intelligenceModel {
+            next.intelligence.model = intelligenceModel
+        }
+        if let intelligenceReasoningEffort {
+            next.intelligence.reasoningEffort = intelligenceReasoningEffort
+        }
+        if let intelligenceSpeed {
+            next.intelligence.speed = intelligenceSpeed
+        }
         if let sessionDetailHoverDelayMilliseconds {
             next.sessionDetailHoverDelayMilliseconds = sessionDetailHoverDelayMilliseconds
         }
@@ -4533,6 +4606,108 @@ private struct ConfigurationView: View {
             next.parserTuning.sessionIndexLineBufferKB = sessionIndexLineBufferKB
         }
         return next.normalized()
+    }
+
+    private var selectedIntelligenceModel: LocalCodexModelCapability? {
+        intelligenceCapabilities?.models.first { $0.model == settings.intelligence.model }
+    }
+
+    private var intelligenceModelOptions: [PaletteSegmentedOption<String>] {
+        guard let intelligenceCapabilities else {
+            return [
+                PaletteSegmentedOption(
+                    value: settings.intelligence.model,
+                    title: settings.intelligence.model
+                ),
+            ]
+        }
+        return intelligenceCapabilities.models.map {
+            PaletteSegmentedOption(value: $0.model, title: $0.displayName)
+        }
+    }
+
+    private var intelligenceEffortOptions: [PaletteSegmentedOption<String>] {
+        guard let selectedIntelligenceModel else {
+            return [
+                PaletteSegmentedOption(
+                    value: settings.intelligence.reasoningEffort,
+                    title: reasoningEffortTitle(settings.intelligence.reasoningEffort)
+                ),
+            ]
+        }
+        return selectedIntelligenceModel.supportedReasoningEfforts.map {
+            PaletteSegmentedOption(
+                value: $0.reasoningEffort,
+                title: reasoningEffortTitle($0.reasoningEffort)
+            )
+        }
+    }
+
+    private var intelligenceSpeedOptions: [PaletteSegmentedOption<String>] {
+        var options = [
+            PaletteSegmentedOption(
+                value: "default",
+                title: ModexStrings.text("config.intelligenceSpeedStandard")
+            ),
+        ]
+        options.append(contentsOf: (selectedIntelligenceModel?.serviceTiers ?? []).map {
+            PaletteSegmentedOption(value: $0.id, title: speedTierTitle($0))
+        })
+        return options
+    }
+
+    private var intelligenceModelDetail: String {
+        if isDiscoveringIntelligenceCapabilities {
+            return ModexStrings.text("config.intelligenceCapabilitiesLoading")
+        }
+        if intelligenceCapabilityError != nil {
+            return ModexStrings.text("config.intelligenceCapabilitiesFailed")
+        }
+        if let intelligenceCapabilities {
+            return ModexStrings.format(
+                "config.intelligenceCapabilitiesAvailable",
+                intelligenceCapabilities.models.count,
+                intelligenceCapabilities.version ?? "Codex"
+            )
+        }
+        return ModexStrings.text("config.intelligenceModelHelp")
+    }
+
+    private func settingsSelectingIntelligenceModel(_ modelID: String) -> ModexAppSettings {
+        var next = updatedSettings(intelligenceModel: modelID)
+        if let model = intelligenceCapabilities?.models.first(where: { $0.model == modelID }) {
+            next.intelligence.reasoningEffort = model.defaultReasoningEffort
+            next.intelligence.speed = model.defaultServiceTier ?? "default"
+        }
+        return next
+    }
+
+    private func reasoningEffortTitle(_ effort: String) -> String {
+        let key: String
+        switch effort {
+        case "low":
+            key = "config.intelligenceEffortLow"
+        case "medium":
+            key = "config.intelligenceEffortMedium"
+        case "high":
+            key = "config.intelligenceEffortHigh"
+        case "xhigh":
+            key = "config.intelligenceEffortXHigh"
+        case "max":
+            key = "config.intelligenceEffortMax"
+        case "ultra":
+            key = "config.intelligenceEffortUltra"
+        default:
+            return effort
+        }
+        return ModexStrings.text(key)
+    }
+
+    private func speedTierTitle(_ tier: LocalCodexServiceTierCapability) -> String {
+        if tier.name.caseInsensitiveCompare("Fast") == .orderedSame {
+            return ModexStrings.text("config.intelligenceSpeedFast")
+        }
+        return tier.name
     }
 
     private var canTestIntelligence: Bool {
@@ -4680,6 +4855,7 @@ private struct LanguageChipPicker: View {
 private struct PaletteSegmentedControl<Value: Hashable>: View {
     let options: [PaletteSegmentedOption<Value>]
     @Binding var selection: Value
+    var disabledValues: Set<Value> = []
 
     @Environment(\.modexPalette) private var palette
     @State private var hoveredValue: Value?
@@ -4692,7 +4868,7 @@ private struct PaletteSegmentedControl<Value: Hashable>: View {
                 } label: {
                     Text(option.title)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(option.value == selection ? Color.white : palette.secondaryText)
+                        .foregroundStyle(textColor(for: option.value))
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
                         .frame(maxWidth: .infinity)
@@ -4702,6 +4878,7 @@ private struct PaletteSegmentedControl<Value: Hashable>: View {
                         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .disabled(disabledValues.contains(option.value))
                 .onHover { isHovered in
                     hoveredValue = isHovered ? option.value : nil
                 }
@@ -4718,6 +4895,13 @@ private struct PaletteSegmentedControl<Value: Hashable>: View {
         .animation(.easeInOut(duration: 0.12), value: selection)
     }
 
+    private func textColor(for value: Value) -> Color {
+        if disabledValues.contains(value) {
+            return palette.mutedText.opacity(0.62)
+        }
+        return value == selection ? .white : palette.secondaryText
+    }
+
     @ViewBuilder
     private func segmentBackground(for value: Value) -> some View {
         if value == selection {
@@ -4729,6 +4913,59 @@ private struct PaletteSegmentedControl<Value: Hashable>: View {
         } else {
             Color.clear
         }
+    }
+}
+
+private struct PaletteMenuPicker<Value: Hashable>: View {
+    let options: [PaletteSegmentedOption<Value>]
+    @Binding var selection: Value
+    var isEnabled = true
+
+    @Environment(\.modexPalette) private var palette
+    @State private var isHovered = false
+
+    var body: some View {
+        Menu {
+            ForEach(options) { option in
+                Button {
+                    selection = option.value
+                } label: {
+                    if option.value == selection {
+                        Label(option.title, systemImage: "checkmark")
+                    } else {
+                        Text(option.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(selectedTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(palette.mutedText)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .background(isHovered ? palette.surfaceHighlight : palette.sidebar.opacity(0.84))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(palette.surface.opacity(0.55), lineWidth: 0.7)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.66)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel(Text(selectedTitle))
+    }
+
+    private var selectedTitle: String {
+        options.first { $0.value == selection }?.title ?? ""
     }
 }
 

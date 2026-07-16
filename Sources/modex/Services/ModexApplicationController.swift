@@ -20,6 +20,7 @@ final class ModexApplicationController: ObservableObject {
     private var refreshLoopTask: Task<Void, Never>?
     private var historyTask: Task<Void, Never>?
     private var intelligenceTestTask: Task<Void, Never>?
+    private var intelligenceCapabilityTask: Task<Void, Never>?
     private var agentInsightTasks: [String: Task<Void, Never>] = [:]
     private var hasStarted = false
 
@@ -50,6 +51,7 @@ final class ModexApplicationController: ObservableObject {
         refreshLoopTask?.cancel()
         historyTask?.cancel()
         intelligenceTestTask?.cancel()
+        intelligenceCapabilityTask?.cancel()
         for task in agentInsightTasks.values {
             task.cancel()
         }
@@ -60,6 +62,7 @@ final class ModexApplicationController: ObservableObject {
             return
         }
         hasStarted = true
+        discoverIntelligenceCapabilities()
         refresh()
         scheduleRefreshLoop()
     }
@@ -102,6 +105,10 @@ final class ModexApplicationController: ObservableObject {
             model.intelligenceConnectionState = intelligenceConnectionStore.state(
                 for: settings.intelligence
             )
+        }
+
+        if oldSettings.intelligence.codexExecutablePath != settings.intelligence.codexExecutablePath {
+            discoverIntelligenceCapabilities(after: .milliseconds(350))
         }
 
         if oldSettings.refreshIntervalSeconds != settings.refreshIntervalSeconds {
@@ -157,6 +164,63 @@ final class ModexApplicationController: ObservableObject {
             }
             intelligenceTestTask = nil
             updateIntelligenceConnection(result, for: intelligence)
+        }
+    }
+
+    private func discoverIntelligenceCapabilities(after delay: Duration = .zero) {
+        intelligenceCapabilityTask?.cancel()
+        let executablePath = settings.intelligence.codexExecutablePath
+        model.isDiscoveringIntelligenceCapabilities = true
+        model.intelligenceCapabilityError = nil
+
+        intelligenceCapabilityTask = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            if delay > .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
+
+            do {
+                let capabilities = try await LocalCodexCapabilityDiscoveryService(
+                    executablePath: executablePath
+                ).discover()
+                guard Task.isCancelled == false,
+                      settings.intelligence.codexExecutablePath == executablePath
+                else {
+                    return
+                }
+
+                model.intelligenceCapabilities = capabilities
+                model.isDiscoveringIntelligenceCapabilities = false
+                model.intelligenceCapabilityError = nil
+                intelligenceCapabilityTask = nil
+
+                let normalized = settings.intelligence.normalized(using: capabilities)
+                if normalized != settings.intelligence {
+                    var updatedSettings = settings
+                    updatedSettings.intelligence = normalized
+                    apply(settings: updatedSettings)
+                }
+            } catch {
+                guard Task.isCancelled == false,
+                      settings.intelligence.codexExecutablePath == executablePath
+                else {
+                    return
+                }
+                let message = Self.intelligenceCapabilityErrorMessage(error)
+                model.intelligenceCapabilities = nil
+                model.isDiscoveringIntelligenceCapabilities = false
+                model.intelligenceCapabilityError = message
+                intelligenceCapabilityTask = nil
+                if settings.intelligence.enabled {
+                    model.intelligenceConnectionState = .limited(message)
+                }
+            }
         }
     }
 
@@ -430,6 +494,28 @@ final class ModexApplicationController: ObservableObject {
             return ModexStrings.text("config.intelligenceErrorMissingOutput")
         case .invalidOutput(let detail):
             return ModexStrings.format("config.intelligenceErrorInvalidOutput", detail)
+        }
+    }
+
+    nonisolated private static func intelligenceCapabilityErrorMessage(_ error: Error) -> String {
+        guard let error = error as? LocalCodexCapabilityDiscoveryError else {
+            return String(describing: error)
+        }
+
+        switch error {
+        case .codexUnavailable(let path):
+            return ModexStrings.format("config.intelligenceErrorUnavailable", path)
+        case .timedOut(let seconds):
+            return ModexStrings.format("config.intelligenceErrorTimedOut", seconds)
+        case .processFailed(let status, let detail):
+            if detail.isEmpty {
+                return ModexStrings.format("config.intelligenceErrorProcess", status)
+            }
+            return ModexStrings.format("config.intelligenceErrorProcessDetail", status, detail)
+        case .malformedResponse:
+            return ModexStrings.text("config.intelligenceCapabilitiesMalformed")
+        case .noModels:
+            return ModexStrings.text("config.intelligenceCapabilitiesEmpty")
         }
     }
 

@@ -4,11 +4,17 @@ final class ModexIntelligenceConnectionStore {
     private struct Receipt: Codable {
         let provider: String
         let executablePath: String
+        let model: String
+        let reasoningEffort: String
+        let speed: String
         let verifiedAt: Date
 
         func matches(_ settings: ModexIntelligenceSettings) -> Bool {
             provider == settings.provider.rawValue
                 && executablePath == settings.codexExecutablePath
+                && model == settings.model
+                && reasoningEffort == settings.reasoningEffort
+                && speed == settings.speed
         }
     }
 
@@ -40,6 +46,9 @@ final class ModexIntelligenceConnectionStore {
         let receipt = Receipt(
             provider: settings.provider.rawValue,
             executablePath: settings.codexExecutablePath,
+            model: settings.model,
+            reasoningEffort: settings.reasoningEffort,
+            speed: settings.speed,
             verifiedAt: date
         )
         guard let data = try? encoder.encode(receipt) else {

@@ -290,12 +290,53 @@ public struct ModexAgentInsightEvidenceBuilder: Sendable {
 public struct LocalCodexInsightConfiguration: Equatable, Sendable {
     public let executablePath: String
     public let timeoutSeconds: Int
+    public let model: String
+    public let reasoningEffort: String
+    public let serviceTier: String
 
-    public init(executablePath: String = "codex", timeoutSeconds: Int = 45) {
+    public init(
+        executablePath: String = "codex",
+        timeoutSeconds: Int = 45,
+        model: String = "gpt-5.3-codex-spark",
+        reasoningEffort: String = "high",
+        serviceTier: String = "default"
+    ) {
         self.executablePath = executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "codex"
             : executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
         self.timeoutSeconds = min(max(timeoutSeconds, 5), 180)
+        self.model = model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "gpt-5.3-codex-spark"
+            : model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasoningEffort = reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.reasoningEffort = reasoningEffort.isEmpty ? "high" : reasoningEffort
+        let serviceTier = serviceTier.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.serviceTier = serviceTier.isEmpty ? "default" : serviceTier
+    }
+
+    func commandArguments(schemaPath: String, outputPath: String) -> [String] {
+        [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--color",
+            "never",
+            "--model",
+            model,
+            "--config",
+            "model_reasoning_effort=\"\(reasoningEffort)\"",
+            serviceTier == "default" ? "--disable" : "--enable",
+            "fast_mode",
+            "--config",
+            "service_tier=\"\(serviceTier)\"",
+            "--output-schema",
+            schemaPath,
+            "-o",
+            outputPath,
+            "-",
+        ]
     }
 }
 
@@ -362,20 +403,10 @@ public struct LocalCodexAgentInsightService: Sendable {
         }
 
         let process = Process()
-        let codexArgs = [
-            "exec",
-            "--ephemeral",
-            "--skip-git-repo-check",
-            "--sandbox",
-            "read-only",
-            "--color",
-            "never",
-            "--output-schema",
-            schemaURL.path,
-            "-o",
-            outputURL.path,
-            "-",
-        ]
+        let codexArgs = configuration.commandArguments(
+            schemaPath: schemaURL.path,
+            outputPath: outputURL.path
+        )
         if configuration.executablePath.contains("/") {
             process.executableURL = URL(fileURLWithPath: configuration.executablePath)
             process.arguments = codexArgs

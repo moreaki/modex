@@ -113,7 +113,9 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Settings should feel like a native, calm macOS configuration surface, not a debug panel.
 - Keep the main settings tabs clear: General, Appearance, Context, and Expert.
 - If agent-assisted insight is added, expose Codex connectivity as a clear settings section with enablement, provider/source, credential state, privacy mode, test action, last-tested timestamp, and readable connection state. A green state must mean an end-to-end structured insight test succeeded, not merely that a token or executable was found.
-- Persist a successful Codex Intelligence verification receipt with its timestamp and configuration identity. Restore `Connected` across launches only for the same provider/executable, invalidate it after a matching verification failure, and return to `Unknown` when connection-relevant configuration changes.
+- Persist a successful Codex Intelligence verification receipt with its timestamp and configuration identity. Restore `Connected` across launches only for the same provider, executable, model, effort, and speed, invalidate it after a matching verification failure, and return to `Unknown` when connection-relevant configuration changes.
+- Keep Codex Intelligence model, reasoning effort, and speed explicit and user-configurable. Discover visible models, each model's supported efforts and defaults, and service tiers from the configured Codex CLI through the app-server `model/list` protocol; do not maintain a static model catalog in Modex.
+- Prefer GPT-5.3 Codex Spark with high effort and standard speed when the installed CLI advertises it. Otherwise use the CLI's default model and that model's defaults. Never offer an effort or speed tier the selected model did not report.
 - Put uncommon parser and buffer tuning behind Expert.
 - Prefer controls that match intent:
   - segmented controls or chips for small exclusive choices

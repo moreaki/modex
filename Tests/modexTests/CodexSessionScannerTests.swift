@@ -1077,6 +1077,74 @@ import Testing
     #expect(insights.contains { $0.kind == .highCacheReuse })
 }
 
+@Test func localCodexInsightConfigurationUsesSparkDefaults() {
+    let configuration = LocalCodexInsightConfiguration()
+    let arguments = configuration.commandArguments(
+        schemaPath: "/tmp/modex-schema.json",
+        outputPath: "/tmp/modex-output.json"
+    )
+
+    #expect(configuration.model == "gpt-5.3-codex-spark")
+    #expect(configuration.reasoningEffort == "high")
+    #expect(configuration.serviceTier == "default")
+    #expect(arguments.contains("gpt-5.3-codex-spark"))
+    #expect(arguments.contains("model_reasoning_effort=\"high\""))
+    #expect(arguments.contains("--disable"))
+    #expect(arguments.contains("fast_mode"))
+    #expect(arguments.contains("service_tier=\"default\""))
+}
+
+@Test func localCodexInsightConfigurationMapsFastExecutionProfile() {
+    let configuration = LocalCodexInsightConfiguration(
+        model: "gpt-5.5",
+        reasoningEffort: "medium",
+        serviceTier: "priority"
+    )
+    let arguments = configuration.commandArguments(
+        schemaPath: "/tmp/modex-schema.json",
+        outputPath: "/tmp/modex-output.json"
+    )
+
+    #expect(arguments.contains("gpt-5.5"))
+    #expect(arguments.contains("model_reasoning_effort=\"medium\""))
+    #expect(arguments.contains("--enable"))
+    #expect(arguments.contains("fast_mode"))
+    #expect(arguments.contains("service_tier=\"priority\""))
+}
+
+@Test func localCodexCapabilityDiscoveryUsesAppServerModelMetadata() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let executableURL = temporaryDirectory.appendingPathComponent("codex-mock")
+    let script = #"""
+    #!/bin/sh
+    IFS= read -r initialize
+    IFS= read -r initialized
+    IFS= read -r models
+    printf '%s\n' '{"id":1,"result":{"userAgent":"Codex Desktop/9.8.7 (macOS)","codexHome":"/tmp/.codex","platformFamily":"unix","platformOs":"macos"}}'
+    printf '%s\n' '{"id":2,"result":{"data":[{"id":"dynamic-model","model":"dynamic-model","displayName":"Dynamic Model","description":"Reported by the CLI","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"Balanced"},{"reasoningEffort":"ultra","description":"Deep"}],"defaultReasoningEffort":"medium","serviceTiers":[{"id":"priority","name":"Fast","description":"Faster"}],"defaultServiceTier":null,"isDefault":true}],"nextCursor":null}}'
+    """#
+    try script.write(to: executableURL, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+
+    let capabilities = try await LocalCodexCapabilityDiscoveryService(
+        executablePath: executableURL.path,
+        timeoutSeconds: 2
+    ).discover()
+
+    let model = try #require(capabilities.models.first)
+    #expect(capabilities.version == "9.8.7")
+    #expect(model.model == "dynamic-model")
+    #expect(model.defaultReasoningEffort == "medium")
+    #expect(model.supportedReasoningEfforts.map(\.reasoningEffort) == ["medium", "ultra"])
+    #expect(model.serviceTiers.first?.id == "priority")
+}
+
 @Test func agentInsightFingerprintIgnoresIncidentalThreadActivity() {
     let original = ModexInsight(
         id: "session-failed-commands",

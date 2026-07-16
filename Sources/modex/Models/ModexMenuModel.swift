@@ -12,6 +12,9 @@ final class ModexMenuModel: ObservableObject {
     @Published var agentInsightErrors: [String: String] = [:]
     @Published var settings: ModexAppSettings
     @Published var intelligenceConnectionState: ModexIntelligenceConnectionState
+    @Published var intelligenceCapabilities: LocalCodexCapabilities?
+    @Published var isDiscoveringIntelligenceCapabilities = false
+    @Published var intelligenceCapabilityError: String?
     @Published var isRefreshing = false
     @Published var readFailureMessage: String?
 
