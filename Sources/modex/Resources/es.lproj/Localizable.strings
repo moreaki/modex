@@ -111,6 +111,7 @@
 "instrumentation.cacheSaved" = "Ahorrado";
 "instrumentation.chunk" = "Bloque";
 "instrumentation.concurrency" = "Concurrencia";
+"instrumentation.concurrencyValue" = "%d de %d analizadores";
 "instrumentation.contextSwitches" = "Cambios de contexto";
 "instrumentation.cpu" = "CPU / media";
 "instrumentation.cpuTime" = "Tiempo de CPU";
@@ -206,6 +207,7 @@
 "overview.quit" = "Salir de Modex";
 "overview.readStatus" = "%@ leído  %@";
 "overview.readStatusCached" = "%@ leído  %@  %d en caché";
+"overview.readStatusHelp" = "Datos leídos, analizadores usados en el último escaneo frente al máximo configurado y archivos de sesión sin cambios restaurados desde la caché. Los aciertos de caché no requieren un analizador.";
 "overview.refresh" = "Actualizar";
 "overview.refreshing" = "Actualizando...";
 "overview.refreshingWithStatus" = "%@  Actualizando...";

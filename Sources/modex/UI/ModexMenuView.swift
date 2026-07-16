@@ -64,6 +64,7 @@ struct ModexMenuView: View {
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(palette.secondaryText)
                 .lineLimit(1)
+                .help(ModexStrings.text("overview.readStatusHelp"))
 
             Button {
                 showingIntelligenceConfiguration = true
@@ -474,6 +475,7 @@ struct ModexThreadDetailWindow: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(palette.mutedText)
                 .lineLimit(1)
+                .help(ModexStrings.text("overview.readStatusHelp"))
         }
         .padding(.horizontal, 22)
         .padding(.top, 20)
@@ -1543,10 +1545,11 @@ private struct ThreadDiagnosticsTab: View {
     }
 
     private func concurrencyValue(_ metrics: ScanMetrics) -> String {
-        if metrics.maximumConcurrentParses == metrics.configuredMaximumConcurrentParses {
-            return "\(metrics.maximumConcurrentParses)x"
-        }
-        return "\(metrics.maximumConcurrentParses)x / \(metrics.configuredMaximumConcurrentParses)x"
+        ModexStrings.format(
+            "instrumentation.concurrencyValue",
+            metrics.maximumConcurrentParses,
+            metrics.configuredMaximumConcurrentParses
+        )
     }
 
     private func slowestFiles(_ metrics: ScanMetrics) -> [FileScanMetrics] {
@@ -3858,10 +3861,11 @@ private struct InstrumentationView: View {
     }
 
     private func concurrencyValue(_ metrics: ScanMetrics) -> String {
-        if metrics.maximumConcurrentParses == metrics.configuredMaximumConcurrentParses {
-            return "\(metrics.maximumConcurrentParses)x"
-        }
-        return "\(metrics.maximumConcurrentParses)x / \(metrics.configuredMaximumConcurrentParses)x"
+        ModexStrings.format(
+            "instrumentation.concurrencyValue",
+            metrics.maximumConcurrentParses,
+            metrics.configuredMaximumConcurrentParses
+        )
     }
 }
 

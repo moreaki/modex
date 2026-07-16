@@ -111,6 +111,7 @@
 "instrumentation.cacheSaved" = "Saved";
 "instrumentation.chunk" = "Chunk";
 "instrumentation.concurrency" = "Concurrency";
+"instrumentation.concurrencyValue" = "%d of %d parsers";
 "instrumentation.contextSwitches" = "Context switches";
 "instrumentation.cpu" = "CPU / average";
 "instrumentation.cpuTime" = "CPU time";
@@ -206,6 +207,7 @@
 "overview.quit" = "Quit Modex";
 "overview.readStatus" = "%@ read  %@";
 "overview.readStatusCached" = "%@ read  %@  %d cached";
+"overview.readStatusHelp" = "Data read, parser workers used by the last scan versus the configured maximum, and unchanged session files restored from cache. Cache hits need no parser worker.";
 "overview.refresh" = "Refresh";
 "overview.refreshing" = "Refreshing...";
 "overview.refreshingWithStatus" = "%@  Refreshing...";

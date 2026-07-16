@@ -111,6 +111,7 @@
 "instrumentation.cacheSaved" = "Économisé";
 "instrumentation.chunk" = "Bloc";
 "instrumentation.concurrency" = "Concurrence";
+"instrumentation.concurrencyValue" = "%d parseurs sur %d";
 "instrumentation.contextSwitches" = "Commutations";
 "instrumentation.cpu" = "CPU / moyenne";
 "instrumentation.cpuTime" = "Temps CPU";
@@ -206,6 +207,7 @@
 "overview.quit" = "Quitter Modex";
 "overview.readStatus" = "%@ lus  %@";
 "overview.readStatusCached" = "%@ lus  %@  %d en cache";
+"overview.readStatusHelp" = "Données lues, analyseurs utilisés lors du dernier scan par rapport au maximum configuré et fichiers de session inchangés restaurés depuis le cache. Un accès au cache ne mobilise aucun analyseur.";
 "overview.refresh" = "Actualiser";
 "overview.refreshing" = "Actualisation...";
 "overview.refreshingWithStatus" = "%@  Actualisation...";

@@ -68,9 +68,10 @@ final class ModexMenuModel: ObservableObject {
     }
 
     private func concurrencyValue(_ metrics: ScanMetrics) -> String {
-        if metrics.maximumConcurrentParses == metrics.configuredMaximumConcurrentParses {
-            return "\(metrics.maximumConcurrentParses)x"
-        }
-        return "\(metrics.maximumConcurrentParses)x / \(metrics.configuredMaximumConcurrentParses)x"
+        ModexStrings.format(
+            "instrumentation.concurrencyValue",
+            metrics.maximumConcurrentParses,
+            metrics.configuredMaximumConcurrentParses
+        )
     }
 }

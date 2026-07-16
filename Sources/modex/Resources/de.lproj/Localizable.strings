@@ -111,6 +111,7 @@
 "instrumentation.cacheSaved" = "Gespart";
 "instrumentation.chunk" = "Chunk";
 "instrumentation.concurrency" = "Parallelität";
+"instrumentation.concurrencyValue" = "%d von %d Parsern";
 "instrumentation.contextSwitches" = "Kontextwechsel";
 "instrumentation.cpu" = "CPU / Mittel";
 "instrumentation.cpuTime" = "CPU-Zeit";
@@ -206,6 +207,7 @@
 "overview.quit" = "Modex beenden";
 "overview.readStatus" = "%@ gelesen  %@";
 "overview.readStatusCached" = "%@ gelesen  %@  %d gecacht";
+"overview.readStatusHelp" = "Gelesene Daten, im letzten Scan genutzte Parser im Verhältnis zum konfigurierten Maximum und unveränderte Sitzungsdateien aus dem Cache. Cache-Treffer benötigen keinen Parser.";
 "overview.refresh" = "Aktualisieren";
 "overview.refreshing" = "Aktualisiere...";
 "overview.refreshingWithStatus" = "%@  Aktualisiere...";
