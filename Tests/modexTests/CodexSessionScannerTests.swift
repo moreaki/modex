@@ -3,6 +3,82 @@ import SQLite3
 import Testing
 @testable import ModexCore
 
+@Test func applicationVersionParsesAndOrdersSemanticVersions() throws {
+    let current = ModexApplicationVersion.current
+    let parsed = try #require(ModexApplicationVersion(string: current.description))
+    let version149 = try #require(ModexApplicationVersion(string: "1.4.9"))
+    let version150 = try #require(ModexApplicationVersion(string: "1.5.0"))
+    let version200 = try #require(ModexApplicationVersion(string: "2.0.0"))
+
+    #expect(parsed == current)
+    #expect(version149 < version150)
+    #expect(version150 < version200)
+    #expect(ModexApplicationVersion(string: "1.5") == nil)
+    #expect(ModexApplicationVersion.buildNumber > 0)
+}
+
+@Test func startupMigratorRunsPendingVersionsOnceAndRecordsOnlySuccess() throws {
+    let suiteName = "ModexMigrationTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+    let applicationSupportURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let context = ModexMigrationContext(
+        defaults: defaults,
+        applicationSupportURL: applicationSupportURL
+    )
+    let versionOne = ModexApplicationVersion(major: 0, minor: 1, patch: 0)
+    let versionTwo = ModexApplicationVersion(major: 0, minor: 2, patch: 0)
+    let versionThree = ModexApplicationVersion(major: 0, minor: 3, patch: 0)
+    var operations: [String] = []
+    let migrations = [
+        ModexStartupMigration(identifier: "baseline", introducedIn: versionOne) { _ in
+            operations.append("baseline")
+        },
+        ModexStartupMigration(identifier: "rebuild-derived-data", introducedIn: versionTwo) { _ in
+            operations.append("rebuild-derived-data")
+        },
+    ]
+    let migrator = ModexStartupMigrator(defaults: defaults)
+
+    let firstResult = try migrator.migrate(
+        to: versionTwo,
+        migrations: migrations,
+        context: context
+    )
+    #expect(firstResult.appliedMigrationIDs == ["baseline", "rebuild-derived-data"])
+    #expect(operations == ["baseline", "rebuild-derived-data"])
+    #expect(defaults.string(forKey: ModexStartupMigrator.lastRunVersionDefaultsKey) == "0.2.0")
+
+    operations.removeAll()
+    let secondResult = try migrator.migrate(
+        to: versionTwo,
+        migrations: migrations,
+        context: context
+    )
+    #expect(secondResult.appliedMigrationIDs.isEmpty)
+    #expect(operations.isEmpty)
+
+    let failingMigration = ModexStartupMigration(
+        identifier: "failing-transform",
+        introducedIn: versionThree
+    ) { _ in
+        throw CocoaError(.fileWriteUnknown)
+    }
+    do {
+        _ = try migrator.migrate(
+            to: versionThree,
+            migrations: migrations + [failingMigration],
+            context: context
+        )
+        Issue.record("Expected the failing migration to throw")
+    } catch {
+        #expect(defaults.string(forKey: ModexStartupMigrator.lastRunVersionDefaultsKey) == "0.2.0")
+    }
+}
+
 @Test func parsesTokenEventsAndComputesSummary() async throws {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)

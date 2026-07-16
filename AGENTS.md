@@ -17,6 +17,8 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Preserve the scanner layer boundaries documented in `docs/fast-concurrent-scanner-architecture.md`: capability-based discovery, bounded scheduling, streaming parsing, cache/checkpoint reuse, aggregation, history, and presentation must remain independently testable.
 - All visible strings belong in localized resources. Do not add hard-coded English UI strings in SwiftUI views, tooltips, menus, settings, or table headings.
 - Settings should persist through `UserDefaults` via the settings store, not through scattered direct calls from views.
+- Treat `ModexApplicationVersion.current` and its build number as the release source of truth. Keep CLI output and packaged `Info.plist` derived from it, and add an ordered startup migration with a fixed literal introduction version when a release requires cache invalidation or persisted-data transformation. Never register a historical migration against `.current`.
+- Keep application release versions separate from persistence schema versions. Startup migrations coordinate cross-store changes; each SQLite store owns its schema migration and must reject unsupported newer schemas.
 
 ## Swift And Dependency Rules
 

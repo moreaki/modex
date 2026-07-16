@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 
 public final class ModexHistoryStore: @unchecked Sendable {
+    public static let schemaVersion = 1
     public let databaseURL: URL
 
     private var database: OpaquePointer?
@@ -231,6 +232,10 @@ public final class ModexHistoryStore: @unchecked Sendable {
     }
 
     private func migrate() throws {
+        let existingVersion = try userVersion()
+        guard existingVersion <= Self.schemaVersion else {
+            throw error("database schema \(existingVersion) is newer than supported schema \(Self.schemaVersion)")
+        }
         try execute(
             """
             CREATE TABLE IF NOT EXISTS scan_samples (
@@ -373,6 +378,18 @@ public final class ModexHistoryStore: @unchecked Sendable {
             ON agent_insight_runs(generated_at);
             """
         )
+        try execute("PRAGMA user_version = \(Self.schemaVersion);")
+    }
+
+    private func userVersion() throws -> Int {
+        var version = 0
+        try withStatement("PRAGMA user_version;") { statement in
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+                throw error("read database schema version")
+            }
+            version = Int(sqlite3_column_int(statement, 0))
+        }
+        return version
     }
 
     private func addColumnsIfNeeded(

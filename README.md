@@ -32,6 +32,12 @@ Print a one-shot terminal summary:
 swift run modex --once
 ```
 
+Print the Modex application and build version:
+
+```bash
+swift run modex --version
+```
+
 Without `--limit`, the one-shot command scans every active thread. Use `--include-archived` to add archived threads or `--limit` for a deliberately bounded diagnostic run.
 
 Useful one-shot options:
@@ -51,6 +57,7 @@ open .build/Modex.app
 
 Raw `swift run modex` can start the app, but the packaged bundle is the more reliable way to get a visible macOS menu-bar item.
 The packaging script builds an optimized release binary by default; use `MODEX_BUILD_CONFIGURATION=debug scripts/package-app.sh` only for a deliberately unoptimized development bundle.
+It obtains the semantic version and build number from the compiled executable and writes them into the packaged app bundle, keeping the GUI, CLI, and `Info.plist` aligned.
 
 ## Menu-Bar Reading
 
@@ -97,6 +104,8 @@ History samples are stored in a compact SQLite database at:
 ```
 
 The history store contains derived scan/thread metrics, lightweight per-scan resource counters, and generated insight summaries, not raw prompt text. Successful Codex insight runs are retained as a small run history while the latest generated result stays quick to display.
+
+Modex records the last successfully launched application version in `UserDefaults`. Ordered startup migrations run before settings and persistent stores are opened, and the recorded version advances only after every pending migration succeeds. The history database maintains a separate schema version. See [Versioning And Migrations](docs/versioning-and-migrations.md) for the release-bump and migration workflow.
 
 ## Data Sources
 

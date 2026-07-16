@@ -6,6 +6,8 @@
 "app.readFailure" = "Modex konnte die Codex-Sitzungsdaten nicht lesen.\n%@";
 "app.tooltip" = "Modex: %@, %@ Median-Tokens/Turn, %d Kompaktierungen";
 "app.unknownContext" = "unbekannter Kontext";
+"app.versionDetail" = "Version %@ (Build %d)";
+"app.versionShort" = "v%@";
 
 "column.average.body" = "Durchschnittliche Gesamtzahl der Tokens über einzelne Token-Zähl-Turns in der Sitzung.";
 "column.average.detail" = "average(last_token_usage.total_tokens)";

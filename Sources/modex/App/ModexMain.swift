@@ -6,6 +6,18 @@ import SwiftUI
 enum ModexMain {
     @MainActor
     static func main() async {
+        if CommandLine.arguments.contains("--version") {
+            print("modex \(ModexApplicationVersion.current) (\(ModexApplicationVersion.buildNumber))")
+            return
+        }
+        if CommandLine.arguments.contains("--version-number") {
+            print(ModexApplicationVersion.current)
+            return
+        }
+        if CommandLine.arguments.contains("--build-number") {
+            print(ModexApplicationVersion.buildNumber)
+            return
+        }
         if CommandLine.arguments.contains("--once") {
             await printSummary(configuration: Self.oneShotConfiguration())
             return

@@ -46,9 +46,12 @@ struct ModexMenuView: View {
     private var dashboardHeader: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(ModexStrings.text("dashboard.title"))
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(palette.text)
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text(ModexStrings.text("dashboard.title"))
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(palette.text)
+                    ModexVersionLabel()
+                }
                 Text(summaryText)
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
                     .foregroundStyle(palette.secondaryText)
@@ -443,9 +446,12 @@ struct ModexThreadDetailWindow: View {
     private var detailHeader: some View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(ModexStrings.text("detail.title"))
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(palette.text)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(ModexStrings.text("detail.title"))
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(palette.text)
+                    ModexVersionLabel()
+                }
                 Text(detailSubtitle)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(palette.secondaryText)
@@ -768,6 +774,33 @@ struct ModexThreadDetailWindow: View {
                     )
                 )
             }
+    }
+}
+
+private struct ModexVersionLabel: View {
+    @Environment(\.modexPalette) private var palette
+
+    var body: some View {
+        Text(ModexStrings.format("app.versionShort", ModexApplicationVersion.current.description))
+            .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+            .foregroundStyle(palette.mutedText)
+            .lineLimit(1)
+            .help(
+                ModexStrings.format(
+                    "app.versionDetail",
+                    ModexApplicationVersion.current.description,
+                    ModexApplicationVersion.buildNumber
+                )
+            )
+            .accessibilityLabel(
+                Text(
+                    ModexStrings.format(
+                        "app.versionDetail",
+                        ModexApplicationVersion.current.description,
+                        ModexApplicationVersion.buildNumber
+                    )
+                )
+            )
     }
 }
 

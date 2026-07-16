@@ -23,6 +23,7 @@ final class ModexApplicationController: ObservableObject {
     private var hasStarted = false
 
     init() {
+        ModexStartupMigrationCatalog.run()
         let settingsStore = ModexSettingsStore()
         let settings = settingsStore.load()
         let historyStore = try? ModexHistoryStore(databaseURL: ModexHistoryStore.defaultDatabaseURL())
