@@ -77,6 +77,7 @@ private struct ModexMenuBarLabel: View {
         .popover(isPresented: $isShowingHoverCard, arrowEdge: .top) {
             ModexMenuBarHoverCard(model: model)
                 .environment(\.modexPalette, palette)
+                .environment(\.colorScheme, effectiveColorScheme)
         }
         .onDisappear {
             hoverTask?.cancel()
@@ -86,6 +87,10 @@ private struct ModexMenuBarLabel: View {
 
     private var palette: ModexPalette {
         ModexTheme.palette(for: model.settings.colorTheme, colorScheme: colorScheme)
+    }
+
+    private var effectiveColorScheme: ColorScheme {
+        model.settings.colorTheme == .black ? .dark : colorScheme
     }
 
     private var title: String {

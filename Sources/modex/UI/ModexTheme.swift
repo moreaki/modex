@@ -55,14 +55,14 @@ enum ModexTheme {
             }
         case .black:
             return ModexPalette(
-                background: .black,
-                sidebar: Color(hex: "#050505"),
-                text: Color(hex: "#F5F5F7"),
-                secondaryText: Color(hex: "#B8B8C0"),
-                mutedText: Color(hex: "#686872"),
+                background: Color(hex: "#060608"),
+                sidebar: Color(hex: "#121216"),
+                text: Color(hex: "#F2F2F7"),
+                secondaryText: Color(hex: "#C7C7D0"),
+                mutedText: Color(hex: "#92929D"),
                 accent: Color(hex: "#64D2FF"),
-                surface: Color(hex: "#171717"),
-                surfaceHighlight: Color.white.opacity(0.08)
+                surface: Color(hex: "#34343C"),
+                surfaceHighlight: Color(hex: "#24242A")
             )
         }
     }

@@ -37,10 +37,15 @@ struct ModexMenuView: View {
         .background(palette.background)
         .foregroundStyle(palette.text)
         .environment(\.modexPalette, palette)
+        .environment(\.colorScheme, effectiveColorScheme)
     }
 
     private var palette: ModexPalette {
         ModexTheme.palette(for: model.settings.colorTheme, colorScheme: colorScheme)
+    }
+
+    private var effectiveColorScheme: ColorScheme {
+        model.settings.colorTheme == .black ? .dark : colorScheme
     }
 
     private var dashboardHeader: some View {
@@ -391,6 +396,7 @@ struct ModexThreadDetailWindow: View {
         .background(palette.background)
         .foregroundStyle(palette.text)
         .environment(\.modexPalette, palette)
+        .environment(\.colorScheme, effectiveColorScheme)
         .onChange(of: selectedScope) { _, _ in
             selectedProject = .all
         }
@@ -398,6 +404,10 @@ struct ModexThreadDetailWindow: View {
 
     private var palette: ModexPalette {
         ModexTheme.palette(for: model.settings.colorTheme, colorScheme: colorScheme)
+    }
+
+    private var effectiveColorScheme: ColorScheme {
+        model.settings.colorTheme == .black ? .dark : colorScheme
     }
 
     private var sessions: [SessionSnapshot] {
@@ -512,6 +522,8 @@ struct ModexThreadDetailWindow: View {
             TextField(ModexStrings.text("detail.searchPlaceholder"), text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(palette.text)
+                .tint(palette.accent)
                 .padding(.horizontal, 10)
                 .frame(width: 260, height: 32)
                 .background(palette.sidebar.opacity(0.82))
