@@ -21,6 +21,7 @@ struct ModexDesktopApplication: App {
             .onAppear {
                 controller.refresh()
             }
+            .background(ModexWindowRegistrationView(target: .dashboard))
         } label: {
             ModexMenuBarLabel(model: controller.model)
                 .task {
@@ -34,6 +35,7 @@ struct ModexDesktopApplication: App {
                 model: controller.model,
                 onRequestAgentInsight: controller.requestAgentInsight
             )
+            .background(ModexWindowRegistrationView(target: .threadDetail))
         }
         .defaultSize(width: 1120, height: 720)
     }

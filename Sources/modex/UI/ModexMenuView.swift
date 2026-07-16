@@ -95,7 +95,7 @@ struct ModexMenuView: View {
             }
 
             Button {
-                openWindow(id: ModexWindowID.threadDetail)
+                openThreadDetail()
             } label: {
                 Label(ModexStrings.text("dashboard.openDetail"), systemImage: "rectangle.grid.1x2")
                     .font(.system(size: 11, weight: .semibold))
@@ -166,6 +166,12 @@ struct ModexMenuView: View {
         groupedSessions(model.summary?.sessions ?? [])
     }
 
+    private func openThreadDetail() {
+        ModexWindowPresenter.presentThreadDetail {
+            openWindow(id: ModexWindowID.threadDetail)
+        }
+    }
+
     private var dashboardSessions: [IndexedSession] {
         (model.summary?.sessions ?? [])
             .enumerated()
@@ -209,7 +215,7 @@ struct ModexMenuView: View {
                 label: ModexStrings.text("dashboard.openDetail"),
                 onHoverLabel: setFooterHint
             ) {
-                openWindow(id: ModexWindowID.threadDetail)
+                openThreadDetail()
             }
 
             Text(footerHint ?? "")
