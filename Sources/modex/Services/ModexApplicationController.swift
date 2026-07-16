@@ -476,7 +476,9 @@ final class ModexApplicationController: ObservableObject {
         }
         return ModexSummary(
             sessions: Array(sessionsByPath.values),
-            scanMetrics: metrics
+            scanMetrics: metrics,
+            accountRateLimits: latestSummary.latestRateLimits,
+            accountRateLimitsObservedAt: latestSummary.latestRateLimitsObservedAt
         )
     }
 

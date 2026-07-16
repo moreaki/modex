@@ -228,6 +228,76 @@ import Testing
     #expect(summary.scanMetrics?.parserMode == "streaming-byte-scan")
 }
 
+@Test func accountRateLimitServiceReadsAppServerGeneralLimit() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let executableURL = try writeMockCodexAppServer(
+        to: temporaryDirectory,
+        accountRateLimitsResponse: """
+        {"id":2,"result":{"rateLimits":{"limitId":"codex_bengalfox","limitName":"GPT-5.3-Codex-Spark","primary":{"usedPercent":0,"windowDurationMins":10080,"resetsAt":1784844319},"secondary":null,"credits":null,"planType":"pro","rateLimitReachedType":null},"rateLimitsByLimitId":{"codex":{"limitId":"codex","limitName":null,"primary":{"usedPercent":2,"windowDurationMins":10080,"resetsAt":1784841346},"secondary":null,"credits":{"hasCredits":false,"unlimited":false,"balance":"0"},"planType":"pro","rateLimitReachedType":null},"codex_bengalfox":{"limitId":"codex_bengalfox","limitName":"GPT-5.3-Codex-Spark","primary":{"usedPercent":0,"windowDurationMins":10080,"resetsAt":1784844319},"secondary":null,"credits":null,"planType":"pro","rateLimitReachedType":null}}}}
+        """
+    )
+
+    let snapshot = try await LocalCodexAccountRateLimitService(
+        executablePath: executableURL.path,
+        timeoutSeconds: 2
+    )
+        .fetchGeneralAccountLimits()
+
+    #expect(snapshot.rateLimits.limitID == "codex")
+    #expect(snapshot.rateLimits.sevenDayWindow?.leftPercent == 98)
+    #expect(snapshot.rateLimits.sevenDayWindow?.windowMinutes == 10_080)
+    #expect(snapshot.rateLimits.sevenDayWindow?.resetsAt == Date(timeIntervalSince1970: 1_784_841_346))
+    #expect(snapshot.rateLimits.planType == "pro")
+}
+
+@Test func monitorPrefersLiveAccountRateLimitsOverLocalLogLimits() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let codexHome = temporaryDirectory.appendingPathComponent(".codex", isDirectory: true)
+    let sessionsDirectory = codexHome.appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("session.jsonl")
+    let jsonl = """
+    {"timestamp":"2026-06-05T09:00:00.000Z","type":"session_meta","payload":{"id":"thread-1","cwd":"/tmp/project"}}
+    {"timestamp":"2026-06-05T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":300,"total_tokens":350},"total_token_usage":{"input_tokens":400,"total_tokens":470},"model_context_window":1000},"rate_limits":{"limit_id":"codex","limit_name":"Codex","primary":{"used_percent":68.0,"window_minutes":10080,"resets_at":1776209285},"secondary":null,"credits":null,"plan_type":"pro"}}}
+    """
+    try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let executableURL = try writeMockCodexAppServer(
+        to: temporaryDirectory,
+        accountRateLimitsResponse: """
+        {"id":2,"result":{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":2,"windowDurationMins":10080,"resetsAt":1784841346},"secondary":null,"credits":{"hasCredits":false,"unlimited":false,"balance":"0"},"planType":"pro","rateLimitReachedType":null},"rateLimitsByLimitId":null}}
+        """
+    )
+
+    let monitor = ModexMonitor(
+        configuration: ModexMonitorConfiguration(
+            codexHome: codexHome,
+            accountRateLimitsExecutablePath: executableURL.path,
+            accountRateLimitsTimeoutSeconds: 2
+        )
+    )
+
+    guard case .success(let summary) = await monitor.refresh() else {
+        Issue.record("Expected monitor refresh to succeed")
+        return
+    }
+
+    #expect(summary.latestRateLimits?.sevenDayWindow?.leftPercent == 98)
+    #expect(summary.latestRateLimits?.sevenDayWindow?.resetsAt == Date(timeIntervalSince1970: 1_784_841_346))
+    #expect(summary.latestRateLimitsObservedAt != Date(timeIntervalSince1970: 1_775_769_285))
+}
+
 @Test func contextGrowthMeasuresConsecutiveInputContextJumps() {
     var session = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/growth.jsonl"))
     session.tokenEvents = [
@@ -1813,6 +1883,24 @@ private func writeSessionIndex(_ namesBySessionID: [String: String], to codexHom
         atomically: true,
         encoding: .utf8
     )
+}
+
+private func writeMockCodexAppServer(
+    to directoryURL: URL,
+    accountRateLimitsResponse: String
+) throws -> URL {
+    let executableURL = directoryURL.appendingPathComponent("codex-mock")
+    let script = """
+    #!/bin/sh
+    printf '%s\\n' '{"id":1,"result":{"userAgent":"Codex Desktop/9.8.7 (macOS)","codexHome":"/tmp/.codex","platformFamily":"unix","platformOs":"macos"}}'
+    printf '%s\\n' '\(accountRateLimitsResponse)'
+    """
+    try script.write(to: executableURL, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: executableURL.path
+    )
+    return executableURL
 }
 
 private func setModificationDate(_ date: Date, for fileURL: URL) throws {

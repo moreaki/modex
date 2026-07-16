@@ -389,7 +389,12 @@ public struct ModexSummary: Equatable, Sendable {
         topLevelThreads.count
     }
 
-    public init(sessions: [SessionSnapshot], scanMetrics: ScanMetrics? = nil) {
+    public init(
+        sessions: [SessionSnapshot],
+        scanMetrics: ScanMetrics? = nil,
+        accountRateLimits: CodexRateLimits? = nil,
+        accountRateLimitsObservedAt: Date? = nil
+    ) {
         self.sessions = sessions.sorted {
             ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
         }
@@ -421,8 +426,10 @@ public struct ModexSummary: Equatable, Sendable {
         contextLeftPercent = contextSession?.contextLeftPercent
 
         let generalRateLimits = Self.latestGeneralRateLimits(in: self.sessions)
-        latestRateLimits = generalRateLimits?.limits
-        latestRateLimitsObservedAt = generalRateLimits?.observedAt
+        latestRateLimits = accountRateLimits ?? generalRateLimits?.limits
+        latestRateLimitsObservedAt = accountRateLimits == nil
+            ? generalRateLimits?.observedAt
+            : accountRateLimitsObservedAt
     }
 
     private static func median(_ values: [Int]) -> Int {

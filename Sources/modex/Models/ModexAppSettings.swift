@@ -279,7 +279,9 @@ struct ModexAppSettings: Equatable, Sendable {
             scannerConfiguration: parserTuning.scannerConfiguration(
                 includeArchivedSessions: includeArchivedSessions
             ),
-            scanCacheEnabled: scanCacheEnabled
+            scanCacheEnabled: scanCacheEnabled,
+            accountRateLimitsExecutablePath: intelligence.codexExecutablePath,
+            accountRateLimitsTimeoutSeconds: min(intelligence.timeoutSeconds, 15)
         )
     }
 

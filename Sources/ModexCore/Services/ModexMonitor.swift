@@ -9,19 +9,26 @@ public struct ModexMonitorConfiguration: Equatable, Sendable {
     public let refreshIntervalSeconds: TimeInterval
     public let scannerConfiguration: CodexSessionScannerConfiguration
     public let scanCacheEnabled: Bool
+    public let accountRateLimitsExecutablePath: String
+    public let accountRateLimitsTimeoutSeconds: Int
 
     public init(
         codexHome: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex"),
         scanLimit: Int? = nil,
         refreshIntervalSeconds: TimeInterval = Self.defaultRefreshIntervalSeconds,
         scannerConfiguration: CodexSessionScannerConfiguration = .default,
-        scanCacheEnabled: Bool = true
+        scanCacheEnabled: Bool = true,
+        accountRateLimitsExecutablePath: String = "codex",
+        accountRateLimitsTimeoutSeconds: Int = 5
     ) {
         self.codexHome = codexHome
         self.scanLimit = scanLimit
         self.refreshIntervalSeconds = refreshIntervalSeconds
         self.scannerConfiguration = scannerConfiguration
         self.scanCacheEnabled = scanCacheEnabled
+        let executablePath = accountRateLimitsExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.accountRateLimitsExecutablePath = executablePath.isEmpty ? "codex" : executablePath
+        self.accountRateLimitsTimeoutSeconds = min(max(accountRateLimitsTimeoutSeconds, 1), 15)
     }
 }
 
@@ -68,6 +75,11 @@ public actor ModexMonitor {
         let scanCache = scanCache
         let task = Task.detached(priority: .userInitiated) { () -> ModexRefreshResult in
             do {
+                async let accountRateLimits = try? LocalCodexAccountRateLimitService(
+                    executablePath: configuration.accountRateLimitsExecutablePath,
+                    timeoutSeconds: configuration.accountRateLimitsTimeoutSeconds
+                )
+                    .fetchGeneralAccountLimits()
                 let scanResult = try await CodexSessionScanner(
                     codexHome: configuration.codexHome,
                     configuration: configuration.scannerConfiguration
@@ -90,7 +102,9 @@ public actor ModexMonitor {
                     )
                 let summary = ModexSummary(
                     sessions: scanResult.sessions,
-                    scanMetrics: scanResult.metrics
+                    scanMetrics: scanResult.metrics,
+                    accountRateLimits: await accountRateLimits?.rateLimits,
+                    accountRateLimitsObservedAt: await accountRateLimits?.observedAt
                 )
                 return .success(summary)
             } catch {
@@ -123,12 +137,24 @@ public struct ModexOneShotCommand: Sendable {
     }
 
     public func report() async throws -> String {
+        async let accountRateLimits = try? LocalCodexAccountRateLimitService(
+            executablePath: configuration.accountRateLimitsExecutablePath,
+            timeoutSeconds: configuration.accountRateLimitsTimeoutSeconds
+        )
+            .fetchGeneralAccountLimits()
         let summary = try await CodexSessionScanner(
             codexHome: configuration.codexHome,
             configuration: configuration.scannerConfiguration
         )
-            .summary(limit: configuration.scanLimit)
-        return formatter.report(for: summary)
+            .scanResult(limit: configuration.scanLimit)
+        return formatter.report(
+            for: ModexSummary(
+                sessions: summary.sessions,
+                scanMetrics: summary.metrics,
+                accountRateLimits: await accountRateLimits?.rateLimits,
+                accountRateLimitsObservedAt: await accountRateLimits?.observedAt
+            )
+        )
     }
 }
 

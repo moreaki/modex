@@ -2,12 +2,12 @@
 
 Modex is a small SwiftUI macOS menu-bar monitor for local Codex token, context, and session usage.
 
-It reads local Codex data from `~/.codex`, uses Codex's read-only state index to find threads, and streams their JSONL files through an in-memory scan cache. The current context/rate-limit picture stays local unless optional Codex Intelligence is explicitly enabled.
+It reads local Codex data from `~/.codex`, uses Codex's read-only state index to find threads, and streams their JSONL files through an in-memory scan cache. It asks the local Codex app-server for the current account rate-limit snapshot and falls back to local log events when that live account read is unavailable. The current context/session picture stays local unless optional Codex Intelligence is explicitly enabled.
 
 ## What It Shows
 
 - A menu-bar heartbeat gauge with the remaining seven-day Codex account quota.
-- A Codex `/status` style overview with context left plus the rate-limit windows reported by current local logs.
+- A Codex `/status` style overview with context left plus the live account rate-limit windows when available.
 - A compact per-thread table grouped by project, using the indexed Codex thread title as the row title and the session id as secondary metadata.
 - Separate seven-thread recent-activity views for Codex Project threads and standalone Task threads, while the complete eligible thread set progressively fills the detached detail window.
 - Per-thread context usage, model, reasoning effort, service tier, source, Codex version, speed, total tokens, median/average turn tokens, compaction count, and last update age when available.
@@ -61,7 +61,7 @@ It obtains the semantic version and build number from the compiled executable an
 
 ## Menu-Bar Reading
 
-The number beside the menu-bar icon is the rounded percentage remaining in the current seven-day general Codex account-limit window. It is the same value shown by the dashboard's `7d limit` bar:
+The number beside the menu-bar icon is the rounded percentage remaining in the current seven-day general Codex account-limit window. Modex reads this from Codex app-server's account rate-limit snapshot when available, so resets made on another machine can be reflected without waiting for a local session log to record the new window. If that live read fails, Modex falls back to the newest general account-limit event in the scanned local logs. It is the same value shown by the dashboard's `7d limit` bar:
 
 ```text
 100 - seven_day_limit.used_percent
@@ -69,7 +69,7 @@ The number beside the menu-bar icon is the rounded percentage remaining in the c
 
 The circular track also represents quota remaining, so it drains as the weekly allowance is consumed. Its colour becomes more urgent based on the consumed percentage, using the configured warning thresholds. When a seven-day account limit is unavailable, Modex shows a neutral icon without substituting an unrelated token or thread-context value. Highest individual thread context remains available as a separate dashboard metric.
 
-Modex selects the newest general Codex account-limit event across all scanned sessions and ignores named model-specific limit pools. It identifies the seven-day window by its duration whether Codex reports it as the primary or secondary window, preserving compatibility with both local payload layouts. The percentage is capacity left, matching Codex's Usage & billing semantics.
+Modex selects the general `codex` account-limit bucket and ignores named model-specific limit pools. It identifies the seven-day window by its duration whether Codex reports it as the primary or secondary window, preserving compatibility with both live and local payload layouts. The percentage is capacity left, matching Codex's Usage & billing semantics.
 
 Clicking the menu-bar item opens immediately using the latest cached result, then refreshes in the background. On a cold read, Modex prioritizes the seven newest Project threads and seven newest standalone Task threads, publishing rows as they become available before progressively adding every remaining eligible thread. The default refresh interval is 60 seconds.
 
