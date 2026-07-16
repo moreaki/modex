@@ -71,6 +71,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 ## Information Hierarchy
 
 - Put global/latest Codex `/status` style information above the table, not inside per-thread table columns.
+- Keep the Codex Intelligence connection state visible on the dashboard. Make an unverified, limited, disabled, or failed state a direct route to its Configuration section rather than a dead status badge.
 - Keep the table for per-thread/session information only. Do not replace median/average/total token columns with global status values.
 - Use the thread name as the primary row label. Use the project name for grouping. Keep the session id as secondary metadata.
 - Keep Codex Project threads and standalone Task threads as separate scopes in overview and detail surfaces. Use Codex's authoritative `projectless-thread-ids` state when available; directory and repository inference is only a fallback.

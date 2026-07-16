@@ -19,6 +19,7 @@ Components:
 
 - `DashboardHeader`
   - app icon, title, last updated, scan duration, active/archived scope
+  - compact Codex Intelligence connection state that opens its Configuration section directly
   - a stable button to open the detached detail window
 - `GlobalStatusPanel`
   - active thread count

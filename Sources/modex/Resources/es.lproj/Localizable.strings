@@ -258,6 +258,7 @@
 "dashboard.filesDetail" = "Archivos cambiados: %d";
 "dashboard.filesShort" = "%d archivos";
 "dashboard.highestContext" = "Contexto más alto";
+"dashboard.intelligenceConnection" = "Codex · %@";
 "dashboard.openDetail" = "Abrir detalle";
 "dashboard.rankHint" = "actividad más reciente";
 "dashboard.scanned" = "escaneados";

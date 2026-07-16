@@ -16,6 +16,7 @@ struct ModexMenuView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var showingInstrumentation = false
     @State private var showingConfiguration = false
+    @State private var showingIntelligenceConfiguration = false
     @State private var footerHint: String?
 
     var body: some View {
@@ -60,6 +61,34 @@ struct ModexMenuView: View {
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(palette.secondaryText)
                 .lineLimit(1)
+
+            Button {
+                showingIntelligenceConfiguration = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: intelligenceStatusIcon)
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(ModexStrings.format("dashboard.intelligenceConnection", intelligenceStatusTitle))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                }
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(intelligenceStatusColor)
+                .padding(.horizontal, 9)
+                .frame(width: 132, height: 30)
+                .background(intelligenceStatusColor.opacity(0.09))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(intelligenceStatusColor.opacity(0.2), lineWidth: 0.7)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(intelligenceStatusDetail)
+            .accessibilityHint(Text(intelligenceStatusDetail))
+            .popover(isPresented: $showingIntelligenceConfiguration, arrowEdge: .top) {
+                configurationView(initialSection: 3)
+            }
 
             Button {
                 openWindow(id: ModexWindowID.threadDetail)
@@ -168,17 +197,7 @@ struct ModexMenuView: View {
                 showingConfiguration.toggle()
             }
             .popover(isPresented: $showingConfiguration, arrowEdge: .bottom) {
-                ConfigurationView(
-                    settings: Binding(
-                        get: { model.settings },
-                        set: { onSettingsChange($0) }
-                    ),
-                    intelligenceConnectionState: model.intelligenceConnectionState,
-                    onOpenCodexFolder: onOpenCodexFolder,
-                    onFlushScanCache: onFlushScanCache,
-                    onTestIntelligenceConnection: onTestIntelligenceConnection,
-                    onFlushAgentInsightCache: onFlushAgentInsightCache
-                )
+                configurationView(initialSection: 0)
             }
 
             IconButton(
@@ -210,6 +229,85 @@ struct ModexMenuView: View {
 
     private func setFooterHint(_ label: String?) {
         footerHint = label
+    }
+
+    private func configurationView(initialSection: Int) -> some View {
+        ConfigurationView(
+            settings: Binding(
+                get: { model.settings },
+                set: { onSettingsChange($0) }
+            ),
+            intelligenceConnectionState: model.intelligenceConnectionState,
+            initialSection: initialSection,
+            onOpenCodexFolder: onOpenCodexFolder,
+            onFlushScanCache: onFlushScanCache,
+            onTestIntelligenceConnection: onTestIntelligenceConnection,
+            onFlushAgentInsightCache: onFlushAgentInsightCache
+        )
+    }
+
+    private var intelligenceStatusIcon: String {
+        switch model.intelligenceConnectionState {
+        case .off:
+            return "sparkles"
+        case .unknown:
+            return "questionmark.circle"
+        case .testing:
+            return "hourglass"
+        case .connected:
+            return "checkmark.seal.fill"
+        case .limited:
+            return "exclamationmark.triangle.fill"
+        case .failed:
+            return "xmark.octagon.fill"
+        }
+    }
+
+    private var intelligenceStatusColor: Color {
+        switch model.intelligenceConnectionState {
+        case .off, .unknown, .limited:
+            return ModexTheme.noticeContextColor
+        case .testing:
+            return palette.accent
+        case .connected:
+            return .teal
+        case .failed:
+            return ModexTheme.criticalContextColor
+        }
+    }
+
+    private var intelligenceStatusTitle: String {
+        switch model.intelligenceConnectionState {
+        case .off:
+            return ModexStrings.text("config.intelligenceStatusOff")
+        case .unknown:
+            return ModexStrings.text("config.intelligenceStatusUnknown")
+        case .testing:
+            return ModexStrings.text("config.intelligenceStatusTesting")
+        case .connected:
+            return ModexStrings.text("config.intelligenceStatusConnected")
+        case .limited:
+            return ModexStrings.text("config.intelligenceStatusLimited")
+        case .failed:
+            return ModexStrings.text("config.intelligenceStatusFailed")
+        }
+    }
+
+    private var intelligenceStatusDetail: String {
+        switch model.intelligenceConnectionState {
+        case .off:
+            return ModexStrings.text("config.intelligenceStatusOffHelp")
+        case .unknown:
+            return ModexStrings.text("config.intelligenceStatusUnknownHelp")
+        case .testing:
+            return ModexStrings.text("config.intelligenceStatusTestingHelp")
+        case .connected(let date):
+            return ModexStrings.format("config.intelligenceStatusConnectedHelp", UpdatedCell.exactText(for: date))
+        case .limited(let message):
+            return message.isEmpty ? ModexStrings.text("config.intelligenceStatusLimitedHelp") : message
+        case .failed(let message):
+            return message.isEmpty ? ModexStrings.text("config.intelligenceStatusFailedHelp") : message
+        }
     }
 
     private var summaryText: String {
@@ -3799,6 +3897,7 @@ private struct InstrumentationDetailCell: View {
 private struct ConfigurationView: View {
     @Binding var settings: ModexAppSettings
     let intelligenceConnectionState: ModexIntelligenceConnectionState
+    let initialSection: Int
     let onOpenCodexFolder: () -> Void
     let onFlushScanCache: () -> Void
     let onTestIntelligenceConnection: () -> Void
@@ -3866,6 +3965,9 @@ private struct ConfigurationView: View {
         .padding(18)
         .frame(width: 560, height: 460, alignment: .top)
         .background(palette.background)
+        .onAppear {
+            selectedSection = initialSection
+        }
     }
 
     private var generalSettings: some View {
