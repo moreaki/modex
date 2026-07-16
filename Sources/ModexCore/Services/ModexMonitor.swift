@@ -9,19 +9,22 @@ public struct ModexMonitorConfiguration: Equatable, Sendable {
     public let refreshIntervalSeconds: TimeInterval
     public let scannerConfiguration: CodexSessionScannerConfiguration
     public let scanCacheEnabled: Bool
+    public let codexExecutablePath: String?
 
     public init(
         codexHome: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex"),
         scanLimit: Int = Self.defaultScanLimit,
         refreshIntervalSeconds: TimeInterval = Self.defaultRefreshIntervalSeconds,
         scannerConfiguration: CodexSessionScannerConfiguration = .default,
-        scanCacheEnabled: Bool = true
+        scanCacheEnabled: Bool = true,
+        codexExecutablePath: String? = nil
     ) {
         self.codexHome = codexHome
         self.scanLimit = scanLimit
         self.refreshIntervalSeconds = refreshIntervalSeconds
         self.scannerConfiguration = scannerConfiguration
         self.scanCacheEnabled = scanCacheEnabled
+        self.codexExecutablePath = codexExecutablePath
     }
 }
 
@@ -72,7 +75,8 @@ public actor ModexMonitor {
                 )
                     .summary(
                         limit: configuration.scanLimit,
-                        cache: configuration.scanCacheEnabled ? scanCache : nil
+                        cache: configuration.scanCacheEnabled ? scanCache : nil,
+                        statusRateLimits: Self.latestAppServerRateLimits(configuration)
                     )
                 return .success(summary)
             } catch {
@@ -90,6 +94,16 @@ public actor ModexMonitor {
 
         return result
     }
+
+    private static func latestAppServerRateLimits(_ configuration: ModexMonitorConfiguration) -> CodexRateLimits? {
+        guard let executablePath = configuration.codexExecutablePath else {
+            return nil
+        }
+        return try? CodexAppServerRateLimitReader(
+            executablePath: executablePath,
+            codexHome: configuration.codexHome
+        ).latestRateLimits()
+    }
 }
 
 public struct ModexOneShotCommand: Sendable {
@@ -105,11 +119,17 @@ public struct ModexOneShotCommand: Sendable {
     }
 
     public func report() async throws -> String {
+        let statusRateLimits: CodexRateLimits? = configuration.codexExecutablePath.flatMap { executablePath in
+            try? CodexAppServerRateLimitReader(
+                executablePath: executablePath,
+                codexHome: configuration.codexHome
+            ).latestRateLimits()
+        }
         let summary = try await CodexSessionScanner(
             codexHome: configuration.codexHome,
             configuration: configuration.scannerConfiguration
         )
-            .summary(limit: configuration.scanLimit)
+            .summary(limit: configuration.scanLimit, statusRateLimits: statusRateLimits)
         return formatter.report(for: summary)
     }
 }
@@ -175,8 +195,22 @@ public struct ModexSummaryReportFormatter: Sendable {
         }
 
         if let rateLimits = summary.latestRateLimits {
-            lines.append(limitLine(title: "latest 5h limit left", window: rateLimits.primary))
-            lines.append(limitLine(title: "latest 7d limit left", window: rateLimits.secondary))
+            let buckets = rateLimits.buckets.isEmpty
+                ? [
+                    CodexRateLimitBucket(
+                        id: CodexRateLimitBucket.generalID,
+                        name: "General",
+                        primary: rateLimits.primary,
+                        secondary: rateLimits.secondary,
+                        planType: rateLimits.planType
+                    ),
+                ]
+                : rateLimits.buckets
+            for bucket in buckets {
+                let prefix = bucket.isGeneral ? "latest" : bucket.displayName.lowercased()
+                lines.append(limitLine(title: "\(prefix) 5h limit left", window: bucket.primary))
+                lines.append(limitLine(title: "\(prefix) 7d limit left", window: bucket.secondary))
+            }
         } else {
             lines.append("latest 5h limit left: unknown")
             lines.append("latest 7d limit left: unknown")

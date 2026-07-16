@@ -16,7 +16,7 @@ import Testing
     {"timestamp":"2026-06-05T09:00:00.000Z","type":"session_meta","payload":{"id":"thread-1","cwd":"/tmp/project"}}
     {"timestamp":"2026-06-05T09:00:30.000Z","type":"turn_context","payload":{"model":"gpt-5.5","reasoning_effort":"high","effort":"medium","summary":"auto","realtime_active":true}}
     {"timestamp":"2026-06-05T09:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":10,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"total_token_usage":{"input_tokens":100,"cached_input_tokens":10,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"model_context_window":1000}}}
-    {"timestamp":"2026-06-05T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":300,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":7,"total_tokens":350},"total_token_usage":{"input_tokens":400,"cached_input_tokens":30,"output_tokens":70,"reasoning_output_tokens":12,"total_tokens":470},"model_context_window":1000},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":9.0,"window_minutes":300,"resets_at":1775764988},"secondary":{"used_percent":19.0,"window_minutes":10080,"resets_at":1776209285},"credits":null,"plan_type":"pro"}}}
+    {"timestamp":"2026-06-05T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":300,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":7,"total_tokens":350},"total_token_usage":{"input_tokens":400,"cached_input_tokens":30,"output_tokens":70,"reasoning_output_tokens":12,"total_tokens":470},"model_context_window":1000},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":9.0,"window_minutes":300,"resets_at":4102462800},"secondary":{"used_percent":19.0,"window_minutes":10080,"resets_at":4103049600},"credits":null,"plan_type":"pro"}}}
     {"timestamp":"2026-06-05T09:03:00.000Z","type":"event_msg","payload":{"type":"post_compact","trigger":"auto"}}
     """
     try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
@@ -73,6 +73,190 @@ import Testing
     #expect((summary.scanMetrics?.bytesRead ?? 0) > 0)
     #expect((summary.scanMetrics?.durationSeconds ?? 0) >= 0)
     #expect(summary.scanMetrics?.parserMode == "streaming-byte-scan")
+}
+
+@Test func parsesLimitOnlyEventsAndNamedSparkLimits() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("limits.jsonl")
+    let jsonl = """
+    {"timestamp":"2026-06-18T14:00:00.000Z","type":"session_meta","payload":{"id":"limits","cwd":"/tmp/limits"}}
+    {"timestamp":"2026-06-18T14:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":20.0,"window_minutes":300,"resets_at":4102462800},"secondary":{"used_percent":21.0,"window_minutes":10080,"resets_at":4103049600},"individual_limit":{"limit_id":"gpt-5.3-codex-spark","limit_name":"GPT-5.3-Codex-Spark","primary":{"used_percent":68.0,"window_minutes":300,"resets_at":4102462800},"secondary":{"used_percent":44.0,"window_minutes":10080,"resets_at":4103049600}},"credits":null,"plan_type":"pro"}}}
+    """
+    try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .summary()
+
+    #expect(summary.tokenEvents == 1)
+    #expect(summary.totalTokens == 0)
+    #expect(summary.latestRateLimits?.generalBucket?.primary?.leftPercent == 80.0)
+    #expect(summary.latestRateLimits?.generalBucket?.secondary?.leftPercent == 79.0)
+    #expect(summary.latestRateLimits?.sparkBucket?.primary?.leftPercent == 32.0)
+    #expect(summary.latestRateLimits?.sparkBucket?.secondary?.leftPercent == 56.0)
+    #expect(summary.latestRateLimits?.buckets.count == 2)
+}
+
+@Test func summaryUsesFreshestLimitsAcrossScannedSessions() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let latestURL = sessionsDirectory.appendingPathComponent("latest-session.jsonl")
+    let latestJSONL = """
+    {"timestamp":"2026-06-18T15:00:00.000Z","type":"session_meta","payload":{"id":"latest","cwd":"/tmp/latest"}}
+    {"timestamp":"2026-06-18T15:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":11},"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":11},"model_context_window":1000}}}
+    """
+    try latestJSONL.write(to: latestURL, atomically: true, encoding: .utf8)
+
+    let limitsURL = sessionsDirectory.appendingPathComponent("limits-session.jsonl")
+    let limitsJSONL = """
+    {"timestamp":"2026-06-18T14:00:00.000Z","type":"session_meta","payload":{"id":"limits","cwd":"/tmp/limits"}}
+    {"timestamp":"2026-06-18T14:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":12.0,"window_minutes":300,"resets_at":4102462800},"secondary":{"used_percent":34.0,"window_minutes":10080,"resets_at":4103049600},"plan_type":"pro"}}}
+    """
+    try limitsJSONL.write(to: limitsURL, atomically: true, encoding: .utf8)
+
+    try FileManager.default.setAttributes(
+        [.modificationDate: Date(timeIntervalSince1970: 1781795000)],
+        ofItemAtPath: latestURL.path
+    )
+    try FileManager.default.setAttributes(
+        [.modificationDate: Date(timeIntervalSince1970: 1781794000)],
+        ofItemAtPath: limitsURL.path
+    )
+
+    let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .summary(limit: 2)
+
+    #expect(summary.latestSession?.sessionID == "latest")
+    #expect(summary.latestSession?.latestRateLimits == nil)
+    #expect(summary.latestRateLimits?.primary?.leftPercent == 88.0)
+    #expect(summary.latestRateLimits?.secondary?.leftPercent == 66.0)
+}
+
+@Test func summaryMergesStatusAndScannedLimitBuckets() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("spark-only-session.jsonl")
+    let jsonl = """
+    {"timestamp":"2026-06-18T14:00:00.000Z","type":"session_meta","payload":{"id":"spark-only","cwd":"/tmp/spark"}}
+    {"timestamp":"2026-06-18T14:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"individual_limit":{"limit_id":"gpt-5.3-codex-spark","limit_name":"GPT-5.3-Codex-Spark","primary":{"used_percent":68.0,"window_minutes":300,"resets_at":4102462800},"secondary":{"used_percent":44.0,"window_minutes":10080,"resets_at":4103049600}},"plan_type":"pro"}}}
+    """
+    try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let statusRateLimits = CodexRateLimits(
+        primary: CodexRateLimitWindow(
+            usedPercent: 2.0,
+            windowMinutes: 300,
+            resetsAt: Date(timeIntervalSince1970: 4102462800)
+        ),
+        secondary: CodexRateLimitWindow(
+            usedPercent: 1.0,
+            windowMinutes: 10080,
+            resetsAt: Date(timeIntervalSince1970: 4103049600)
+        ),
+        planType: "pro"
+    )
+
+    let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .summary(statusRateLimits: statusRateLimits)
+
+    #expect(summary.latestRateLimits?.generalBucket?.primary?.leftPercent == 98.0)
+    #expect(summary.latestRateLimits?.generalBucket?.secondary?.leftPercent == 99.0)
+    #expect(summary.latestRateLimits?.sparkBucket?.primary?.leftPercent == 32.0)
+    #expect(summary.latestRateLimits?.sparkBucket?.secondary?.leftPercent == 56.0)
+    #expect(summary.latestRateLimits?.buckets.count == 2)
+}
+
+@Test func summaryIgnoresExpiredNamedLimitBuckets() async throws {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sessionsDirectory = temporaryDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    let fileURL = sessionsDirectory.appendingPathComponent("stale-spark.jsonl")
+    let jsonl = """
+    {"timestamp":"2026-06-18T14:00:00.000Z","type":"session_meta","payload":{"id":"stale-spark","cwd":"/tmp/stale"}}
+    {"timestamp":"2026-06-18T14:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":10.0,"window_minutes":300,"resets_at":4102462800},"secondary":{"used_percent":10.0,"window_minutes":10080,"resets_at":4103049600},"individual_limit":{"limit_id":"gpt-5.3-codex-spark","primary":{"used_percent":0.0,"window_minutes":300,"resets_at":946684800},"secondary":{"used_percent":0.0,"window_minutes":10080,"resets_at":946684800}},"plan_type":"pro"}}}
+    """
+    try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let summary = try await CodexSessionScanner(codexHome: temporaryDirectory.appendingPathComponent(".codex"))
+        .summary()
+
+    #expect(summary.latestRateLimits?.generalBucket?.primary?.leftPercent == 90.0)
+    #expect(summary.latestRateLimits?.sparkBucket == nil)
+    #expect(summary.latestRateLimits?.buckets.count == 1)
+}
+
+@Test func appServerRateLimitReaderParsesFreshSparkLimits() throws {
+    let response = Data(
+        """
+        {
+          "id": 2,
+          "result": {
+            "rateLimits": {
+              "limitId": "codex",
+              "limitName": null,
+              "primary": { "usedPercent": 2, "windowDurationMins": 300, "resetsAt": 4102462800 },
+              "secondary": { "usedPercent": 1, "windowDurationMins": 10080, "resetsAt": 4103049600 },
+              "credits": null,
+              "planType": "pro",
+              "rateLimitReachedType": null
+            },
+            "rateLimitsByLimitId": {
+              "codex_bengalfox": {
+                "limitId": "codex_bengalfox",
+                "limitName": "GPT-5.3-Codex-Spark",
+                "primary": { "usedPercent": 68, "windowDurationMins": 300, "resetsAt": 4102462800 },
+                "secondary": { "usedPercent": 44, "windowDurationMins": 10080, "resetsAt": 4103049600 },
+                "credits": null,
+                "planType": "pro",
+                "rateLimitReachedType": null
+              },
+              "codex": {
+                "limitId": "codex",
+                "limitName": null,
+                "primary": { "usedPercent": 2, "windowDurationMins": 300, "resetsAt": 4102462800 },
+                "secondary": { "usedPercent": 1, "windowDurationMins": 10080, "resetsAt": 4103049600 },
+                "credits": null,
+                "planType": "pro",
+                "rateLimitReachedType": null
+              }
+            }
+          }
+        }
+        """.utf8
+    )
+
+    let rateLimits = try #require(
+        try CodexAppServerRateLimitReader
+            .rateLimits(from: response, now: Date(timeIntervalSince1970: 1781794200))
+    )
+
+    #expect(rateLimits.generalBucket?.primary?.leftPercent == 98.0)
+    #expect(rateLimits.generalBucket?.secondary?.leftPercent == 99.0)
+    #expect(rateLimits.sparkBucket?.primary?.leftPercent == 32.0)
+    #expect(rateLimits.sparkBucket?.secondary?.leftPercent == 56.0)
 }
 
 @Test func parsesSessionActivityAndPerformanceMetrics() async throws {

@@ -245,7 +245,10 @@ struct ModexAppSettings: Equatable, Sendable {
             scannerConfiguration: parserTuning.scannerConfiguration(
                 includeArchivedSessions: includeArchivedSessions
             ),
-            scanCacheEnabled: scanCacheEnabled
+            scanCacheEnabled: scanCacheEnabled,
+            codexExecutablePath: intelligence.enabled && intelligence.provider == .localCodex
+                ? intelligence.codexExecutablePath
+                : nil
         )
     }
 

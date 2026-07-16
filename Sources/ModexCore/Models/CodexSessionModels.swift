@@ -45,8 +45,7 @@ public struct TokenEvent: Equatable, Sendable {
 }
 
 public struct CodexRateLimits: Equatable, Sendable {
-    public let primary: CodexRateLimitWindow?
-    public let secondary: CodexRateLimitWindow?
+    public let buckets: [CodexRateLimitBucket]
     public let planType: String?
 
     public init(
@@ -54,15 +53,133 @@ public struct CodexRateLimits: Equatable, Sendable {
         secondary: CodexRateLimitWindow? = nil,
         planType: String? = nil
     ) {
+        self.planType = planType
+        if primary != nil || secondary != nil || planType != nil {
+            buckets = [
+                CodexRateLimitBucket(
+                    id: CodexRateLimitBucket.generalID,
+                    name: "General",
+                    primary: primary,
+                    secondary: secondary,
+                    planType: planType
+                ),
+            ]
+        } else {
+            buckets = []
+        }
+    }
+
+    public init(buckets: [CodexRateLimitBucket], planType: String? = nil) {
+        self.buckets = buckets
+        self.planType = planType ?? buckets.compactMap(\.planType).first
+    }
+
+    public var primary: CodexRateLimitWindow? {
+        preferredBucket?.primary
+    }
+
+    public var secondary: CodexRateLimitWindow? {
+        preferredBucket?.secondary
+    }
+
+    public var generalBucket: CodexRateLimitBucket? {
+        buckets.first { $0.isGeneral } ?? buckets.first
+    }
+
+    public var sparkBucket: CodexRateLimitBucket? {
+        buckets.first { $0.isSpark }
+    }
+
+    public var mostConstrainedLeftPercent: Double? {
+        buckets.flatMap { [$0.primary?.leftPercent, $0.secondary?.leftPercent] }
+            .compactMap(\.self)
+            .min()
+    }
+
+    private var preferredBucket: CodexRateLimitBucket? {
+        generalBucket ?? buckets.first
+    }
+}
+
+public struct CodexRateLimitBucket: Equatable, Sendable {
+    public static let generalID = "codex"
+    public static let sparkID = "gpt-5.3-codex-spark"
+
+    public let id: String?
+    public let name: String?
+    public let primary: CodexRateLimitWindow?
+    public let secondary: CodexRateLimitWindow?
+    public let planType: String?
+
+    public init(
+        id: String?,
+        name: String?,
+        primary: CodexRateLimitWindow? = nil,
+        secondary: CodexRateLimitWindow? = nil,
+        planType: String? = nil
+    ) {
+        self.id = id
+        self.name = name
         self.primary = primary
         self.secondary = secondary
         self.planType = planType
     }
 
-    public var mostConstrainedLeftPercent: Double? {
-        [primary?.leftPercent, secondary?.leftPercent]
+    public var displayName: String {
+        if isGeneral {
+            return "General"
+        }
+        if isSpark {
+            return "GPT-5.3-Codex-Spark"
+        }
+        if let name, name.isEmpty == false {
+            return name
+        }
+        if let id, id.isEmpty == false {
+            return id
+        }
+        return "Codex"
+    }
+
+    public var key: String {
+        Self.normalizedKey(id ?? name ?? displayName)
+    }
+
+    public var isGeneral: Bool {
+        let values = normalizedIDAndName
+        return values.contains(Self.generalID) || values.contains("general")
+    }
+
+    public var isSpark: Bool {
+        normalizedIDAndName.contains { value in
+            value.contains("spark")
+        }
+    }
+
+    public var hasLimitWindows: Bool {
+        primary != nil || secondary != nil
+    }
+
+    public func hasFreshLimitWindow(at date: Date) -> Bool {
+        [primary, secondary].contains { window in
+            guard let window else {
+                return false
+            }
+            guard let resetsAt = window.resetsAt else {
+                return true
+            }
+            return resetsAt >= date
+        }
+    }
+
+    private var normalizedIDAndName: [String] {
+        [id, name]
             .compactMap(\.self)
-            .min()
+            .map(Self.normalizedKey)
+    }
+
+    private static func normalizedKey(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
@@ -279,7 +396,11 @@ public struct ModexSummary: Equatable, Sendable {
     public let latestRateLimits: CodexRateLimits?
     public let latestSession: SessionSnapshot?
 
-    public init(sessions: [SessionSnapshot], scanMetrics: ScanMetrics? = nil) {
+    public init(
+        sessions: [SessionSnapshot],
+        scanMetrics: ScanMetrics? = nil,
+        statusRateLimits: CodexRateLimits? = nil
+    ) {
         self.sessions = sessions.sorted {
             ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
         }
@@ -306,7 +427,89 @@ public struct ModexSummary: Equatable, Sendable {
         latestSession = self.sessions.first
         contextUsagePercent = latestSession?.contextUsagePercent
         contextLeftPercent = latestSession?.contextLeftPercent
-        latestRateLimits = latestSession?.latestRateLimits
+        let scannedRateLimits = Self.latestRateLimits(from: self.sessions, now: Date())
+        latestRateLimits = Self.mergedRateLimits(preferred: statusRateLimits, fallback: scannedRateLimits)
+    }
+
+    private static func mergedRateLimits(
+        preferred: CodexRateLimits?,
+        fallback: CodexRateLimits?
+    ) -> CodexRateLimits? {
+        guard preferred != nil || fallback != nil else {
+            return nil
+        }
+
+        var bucketsByKey: [String: CodexRateLimitBucket] = [:]
+        for bucket in fallback?.buckets ?? [] {
+            bucketsByKey[bucket.key] = bucket
+        }
+        for bucket in preferred?.buckets ?? [] {
+            bucketsByKey[bucket.key] = bucket
+        }
+
+        let buckets = orderedBuckets(Array(bucketsByKey.values))
+        let planType = preferred?.planType ?? fallback?.planType
+        guard buckets.isEmpty == false || planType != nil else {
+            return nil
+        }
+        return CodexRateLimits(buckets: buckets, planType: planType)
+    }
+
+    private static func latestRateLimits(from sessions: [SessionSnapshot], now: Date) -> CodexRateLimits? {
+        var latestBuckets: [String: (timestamp: Date, bucket: CodexRateLimitBucket)] = [:]
+        var latestPlanType: (timestamp: Date, value: String)?
+
+        for session in sessions {
+            let fallbackTimestamp = session.updatedAt ?? .distantPast
+            for event in session.tokenEvents {
+                guard let rateLimits = event.rateLimits else {
+                    continue
+                }
+
+                let timestamp = event.timestamp ?? fallbackTimestamp
+                if let planType = rateLimits.planType,
+                   latestPlanType == nil || timestamp >= latestPlanType!.timestamp
+                {
+                    latestPlanType = (timestamp, planType)
+                }
+
+                for bucket in rateLimits.buckets where bucket.hasFreshLimitWindow(at: now) {
+                    let key = bucket.key
+                    if latestBuckets[key] == nil || timestamp >= latestBuckets[key]!.timestamp {
+                        latestBuckets[key] = (timestamp, bucket)
+                    }
+                }
+            }
+        }
+
+        let buckets = latestBuckets.values
+            .sorted { lhs, rhs in
+                if lhs.bucket.isGeneral != rhs.bucket.isGeneral {
+                    return lhs.bucket.isGeneral
+                }
+                if lhs.bucket.isSpark != rhs.bucket.isSpark {
+                    return rhs.bucket.isSpark == false
+                }
+                return lhs.timestamp > rhs.timestamp
+            }
+            .map(\.bucket)
+
+        guard buckets.isEmpty == false || latestPlanType != nil else {
+            return nil
+        }
+        return CodexRateLimits(buckets: buckets, planType: latestPlanType?.value)
+    }
+
+    private static func orderedBuckets(_ buckets: [CodexRateLimitBucket]) -> [CodexRateLimitBucket] {
+        buckets.sorted { lhs, rhs in
+            if lhs.isGeneral != rhs.isGeneral {
+                return lhs.isGeneral
+            }
+            if lhs.isSpark != rhs.isSpark {
+                return rhs.isSpark == false
+            }
+            return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+        }
     }
 
     private static func median(_ values: [Int]) -> Int {

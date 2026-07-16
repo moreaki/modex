@@ -179,6 +179,10 @@
 "dashboard.filesDetail" = "Geänderte Dateien: %d";
 "dashboard.filesShort" = "%d Dateien";
 "dashboard.highestContext" = "Höchster Kontext";
+"dashboard.limitBucketGeneral" = "Allgemein";
+"dashboard.limitBucketGeneralDetail" = "Gesamte Codex-Nutzung";
+"dashboard.limitBucketSpark" = "Spark";
+"dashboard.limitBucketSparkDetail" = "GPT-5.3-Codex-Spark-Nutzung";
 "dashboard.openDetail" = "Detail öffnen";
 "dashboard.rankHint" = "nach Aufmerksamkeit sortiert";
 "dashboard.scanned" = "gescannt";
@@ -186,6 +190,7 @@
 "dashboard.title" = "Modex-Dashboard";
 "dashboard.topThreads" = "Top-Threads";
 "dashboard.turnsDetail" = "Abgeschlossene Turns: %d";
+"dashboard.usageLimits" = "Nutzungslimits";
 "dashboard.watch" = "beobachten";
 
 "detail.activity" = "Aktivität";

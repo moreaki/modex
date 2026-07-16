@@ -179,6 +179,10 @@
 "dashboard.filesDetail" = "Archivos cambiados: %d";
 "dashboard.filesShort" = "%d archivos";
 "dashboard.highestContext" = "Contexto más alto";
+"dashboard.limitBucketGeneral" = "General";
+"dashboard.limitBucketGeneralDetail" = "Uso total de Codex";
+"dashboard.limitBucketSpark" = "Spark";
+"dashboard.limitBucketSparkDetail" = "Uso de GPT-5.3-Codex-Spark";
 "dashboard.openDetail" = "Abrir detalle";
 "dashboard.rankHint" = "ordenado por atención";
 "dashboard.scanned" = "escaneados";
@@ -186,6 +190,7 @@
 "dashboard.title" = "Panel de Modex";
 "dashboard.topThreads" = "Threads principales";
 "dashboard.turnsDetail" = "Turnos completados: %d";
+"dashboard.usageLimits" = "Límites de uso";
 "dashboard.watch" = "vigilar";
 
 "detail.activity" = "Actividad";

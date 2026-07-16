@@ -1222,22 +1222,174 @@ private struct ThreadDiagnosticsTab: View {
 private struct CodexRateLimitOverview: View {
     let rateLimits: CodexRateLimits
     @Environment(\.modexPalette) private var palette
+    @State private var hoveredSelection: CodexRateLimitSelection?
+    @State private var pinnedSelection: CodexRateLimitSelection?
 
     var body: some View {
-        VStack(spacing: 6) {
-            CodexRateLimitRow(
-                label: ModexStrings.text("overview.primaryLimitTitle"),
-                window: rateLimits.primary
-            )
-            CodexRateLimitRow(
-                label: ModexStrings.text("overview.secondaryLimitTitle"),
-                window: rateLimits.secondary
-            )
+        HStack(alignment: .top, spacing: 12) {
+            limitRows
+
+            bucketSwitch
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(palette.sidebar.opacity(0.42))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .animation(.snappy(duration: 0.16), value: activeSelection)
+        .onDisappear {
+            hoveredSelection = nil
+            pinnedSelection = nil
+        }
+    }
+
+    private var limitRows: some View {
+        VStack(spacing: 6) {
+            CodexRateLimitRow(
+                label: ModexStrings.text("overview.primaryLimitTitle"),
+                window: activeBucket?.primary
+            )
+            CodexRateLimitRow(
+                label: ModexStrings.text("overview.secondaryLimitTitle"),
+                window: activeBucket?.secondary
+            )
+        }
+        .contentShape(Rectangle())
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { isHovering in
+            guard pinnedSelection == nil else {
+                hoveredSelection = nil
+                return
+            }
+            hoveredSelection = isHovering ? hoverPreviewSelection : nil
+        }
+    }
+
+    private var activeBucket: CodexRateLimitBucket? {
+        switch activeSelection {
+        case .general:
+            return rateLimits.generalBucket
+        case .spark:
+            return rateLimits.sparkBucket ?? rateLimits.generalBucket
+        }
+    }
+
+    private var activeSelection: CodexRateLimitSelection {
+        if let pinnedSelection, availableSelections.contains(pinnedSelection) {
+            return pinnedSelection
+        }
+        if let hoveredSelection, availableSelections.contains(hoveredSelection) {
+            return hoveredSelection
+        }
+        return availableSelections.first ?? .general
+    }
+
+    private var availableSelections: [CodexRateLimitSelection] {
+        var selections: [CodexRateLimitSelection] = []
+        if rateLimits.generalBucket != nil {
+            selections.append(.general)
+        }
+        if rateLimits.sparkBucket != nil {
+            selections.append(.spark)
+        }
+        return selections.isEmpty ? [.general] : selections
+    }
+
+    private var showsBucketSwitch: Bool {
+        availableSelections.count > 1
+    }
+
+    private var hoverPreviewSelection: CodexRateLimitSelection? {
+        if availableSelections.contains(.spark), activeSelection != .spark {
+            return .spark
+        }
+        if availableSelections.contains(.general), activeSelection != .general {
+            return .general
+        }
+        return nil
+    }
+
+    @ViewBuilder private var bucketSwitch: some View {
+        if showsBucketSwitch {
+            CodexRateLimitBucketSwitch(
+                selections: availableSelections,
+                activeSelection: activeSelection,
+                pinnedSelection: pinnedSelection,
+                onSelect: { selection in
+                    pinnedSelection = pinnedSelection == selection ? nil : selection
+                }
+            )
+            .padding(.top, 0)
+        }
+    }
+}
+
+private enum CodexRateLimitSelection: String, Hashable {
+    case general
+    case spark
+
+    var title: String {
+        switch self {
+        case .general:
+            return ModexStrings.text("dashboard.limitBucketGeneral")
+        case .spark:
+            return ModexStrings.text("dashboard.limitBucketSpark")
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .general:
+            return ModexStrings.text("dashboard.limitBucketGeneralDetail")
+        case .spark:
+            return ModexStrings.text("dashboard.limitBucketSparkDetail")
+        }
+    }
+}
+
+private struct CodexRateLimitBucketSwitch: View {
+    let selections: [CodexRateLimitSelection]
+    let activeSelection: CodexRateLimitSelection
+    let pinnedSelection: CodexRateLimitSelection?
+    let onSelect: (CodexRateLimitSelection) -> Void
+
+    @Environment(\.modexPalette) private var palette
+    @Namespace private var selectionNamespace
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(selections, id: \.self) { selection in
+                Button {
+                    onSelect(selection)
+                } label: {
+                    Text(selection.title)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(selection == activeSelection ? Color.white : palette.secondaryText)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(
+                            ZStack {
+                                if selection == activeSelection {
+                                    Capsule()
+                                        .fill(palette.text.opacity(0.88))
+                                        .matchedGeometryEffect(id: "activeLimitBucket", in: selectionNamespace)
+                                }
+                            }
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(selection.detailText)
+                .accessibilityLabel(Text(selection.detailText))
+            }
+        }
+        .padding(3)
+        .background(palette.surface.opacity(0.55))
+        .clipShape(Capsule())
+        .animation(.snappy(duration: 0.16), value: activeSelection)
+        .overlay {
+            Capsule()
+                .stroke(palette.surface.opacity(pinnedSelection == nil ? 0.35 : 0.65), lineWidth: 0.7)
+        }
     }
 }
 
@@ -1751,7 +1903,20 @@ private struct DashboardThreadRow: View {
 private struct CodexRateLimitRow: View {
     let label: String
     let window: CodexRateLimitWindow?
+    let trailing: AnyView?
     @Environment(\.modexPalette) private var palette
+
+    init(label: String, window: CodexRateLimitWindow?) {
+        self.label = label
+        self.window = window
+        trailing = nil
+    }
+
+    init(label: String, window: CodexRateLimitWindow?, trailing: some View) {
+        self.label = label
+        self.window = window
+        self.trailing = AnyView(trailing)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1768,6 +1933,11 @@ private struct CodexRateLimitRow: View {
                 .foregroundStyle(palette.text)
                 .frame(width: 210, alignment: .leading)
                 .lineLimit(1)
+
+            if let trailing {
+                trailing
+                    .frame(width: 118, alignment: .trailing)
+            }
         }
         .accessibilityLabel(Text("\(label) \(statusText)"))
     }
