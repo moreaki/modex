@@ -41,9 +41,16 @@ final class ModexApplicationController: ObservableObject {
             intelligenceConnectionState: intelligenceConnectionStore.state(for: settings.intelligence)
         )
         if let results = try? historyStore?.agentInsightResults() {
-            model.agentInsightResults = Dictionary(
-                uniqueKeysWithValues: results.map { ($0.sourceInsightID, $0) }
-            )
+            var latestResults: [String: ModexAgentInsightResult] = [:]
+            for result in results {
+                guard latestResults[result.sourceInsightID]?.generatedAt ?? .distantPast
+                    <= result.generatedAt
+                else {
+                    continue
+                }
+                latestResults[result.sourceInsightID] = result
+            }
+            model.agentInsightResults = latestResults
         }
     }
 
