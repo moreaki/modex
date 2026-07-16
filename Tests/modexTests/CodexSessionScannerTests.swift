@@ -189,6 +189,39 @@ import Testing
     #expect(session.averageContextGrowthPerTurnTokens == 103)
 }
 
+@Test func threadFamiliesGroupSubagentsUnderTheirRootThread() throws {
+    var root = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/root.jsonl"))
+    root.sessionID = "root"
+    root.threadName = "Compare fix approaches"
+
+    var firstAgent = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/agent-one.jsonl"))
+    firstAgent.sessionID = "agent-one"
+    firstAgent.parentThreadID = "root"
+    firstAgent.threadSource = "subagent"
+    firstAgent.agentNickname = "Schrodinger"
+
+    var secondAgent = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/agent-two.jsonl"))
+    secondAgent.sessionID = "agent-two"
+    secondAgent.parentThreadID = "agent-one"
+    secondAgent.threadSource = "subagent"
+    secondAgent.agentNickname = "Bohr"
+
+    var unrelated = SessionSnapshot(fileURL: URL(fileURLWithPath: "/tmp/unrelated.jsonl"))
+    unrelated.sessionID = "unrelated"
+
+    let families = CodexThreadFamilyBuilder.build(
+        from: [unrelated, firstAgent, root, secondAgent]
+    )
+
+    #expect(families.count == 2)
+    let family = try #require(families.first { $0.id == "root" })
+    #expect(family.representative.sessionID == "root")
+    #expect(family.nestedAgents.map(\.sessionID) == ["agent-one", "agent-two"])
+    #expect(family.subagentCount == 2)
+    #expect(ModexSummary(sessions: family.members).topLevelThreadCount == 1)
+    #expect(ModexSummary(sessions: family.members).subagentCount == 2)
+}
+
 @Test func summarySeparatesHighestThreadContextFromGeneralAccountLimits() throws {
     var newestModelSpecificSession = SessionSnapshot(
         fileURL: URL(fileURLWithPath: "/tmp/model-specific.jsonl")
@@ -301,7 +334,8 @@ import Testing
 
     let fileURL = sessionsDirectory.appendingPathComponent("current.jsonl")
     let jsonl = """
-    {"timestamp":"2026-07-15T09:00:00.000Z","type":"session_meta","payload":{"id":"current","cwd":"/tmp/current","cli_version":"0.144.3","model_provider":"openai","source":"cli","agent_nickname":"Ada","agent_role":"reviewer","agent_path":"/root/review","parent_thread_id":"parent","git":{"repository_url":"git@github.com:openai/current.git"}}}
+    {"timestamp":"2026-07-15T09:00:00.000Z","type":"session_meta","payload":{"id":"current","cwd":"/tmp/current","cli_version":"0.144.3","model_provider":"openai","source":"cli","agent_nickname":"Ada","agent_role":"reviewer","agent_path":"/root/review","parent_thread_id":"parent","thread_source":"subagent","git":{"repository_url":"git@github.com:openai/current.git"}}}
+    {"timestamp":"2026-07-15T09:00:01.000Z","type":"session_meta","payload":{"id":"parent","cwd":"/tmp/parent","source":"cli","thread_source":"user"}}
     {"timestamp":"2026-07-15T09:01:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.6-sol","reasoning_effort":"xhigh","service_tier":"fast","personality":"pragmatic","collaboration_mode":{"mode":"default","settings":{}}}}}
     {"timestamp":"2026-07-15T09:02:00.000Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-exec","name":"exec","input":"{}"}}
     {"timestamp":"2026-07-15T09:03:00.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-exec","output":[{"type":"text","text":"Script failed\\nWall time 0.1 seconds"}]}}
@@ -323,12 +357,16 @@ import Testing
     )
 
     #expect(session.cliVersion == "0.144.3")
+    #expect(session.sessionID == "current")
+    #expect(session.workingDirectory == "/tmp/current")
     #expect(session.modelProvider == "openai")
     #expect(session.source == "cli")
     #expect(session.agentNickname == "Ada")
     #expect(session.agentRole == "reviewer")
     #expect(session.agentPath == "/root/review")
     #expect(session.parentThreadID == "parent")
+    #expect(session.threadSource == "subagent")
+    #expect(session.isSubagent)
     #expect(session.gitOriginURL == "git@github.com:openai/current.git")
     #expect(session.model == "gpt-5.6-sol")
     #expect(session.reasoningEffort == "xhigh")
@@ -592,6 +630,24 @@ import Testing
             )
         )
     }
+    for index in 0..<2 {
+        let fileURL = sessionsDirectory.appendingPathComponent("agent-\(index).jsonl")
+        try writeSession(id: "agent-\(index)", to: fileURL)
+        try setModificationDate(now.addingTimeInterval(TimeInterval(index)), for: fileURL)
+        rows.append(
+            StateThreadFixture(
+                id: "agent-\(index)",
+                path: fileURL.path,
+                recencyMilliseconds: Int64(20_000 - index * 1_000),
+                title: "Agent \(index)",
+                gitOriginURL: "git@github.com:example/project.git",
+                archived: false,
+                parentThreadID: "thread-0",
+                threadSource: "subagent",
+                agentNickname: "Agent \(index)"
+            )
+        )
+    }
     try createCodexStateDatabase(
         at: codexHome.appendingPathComponent("state.sqlite"),
         rows: rows
@@ -610,16 +666,17 @@ import Testing
     )
     let progress = await recorder.results()
 
-    #expect(result.sessions.count == 16)
-    #expect(result.metrics.filesSelected == 16)
+    #expect(result.sessions.count == 18)
+    #expect(result.metrics.filesSelected == 18)
     #expect((progress.first?.sessions.count ?? 0) > 0)
     #expect((progress.first?.sessions.count ?? 0) <= 14)
-    #expect(progress.first?.metrics.filesSelected == 16)
+    #expect(progress.first?.metrics.filesSelected == 18)
     let initialCheckpoint = try #require(progress.first { $0.sessions.count == 14 })
     #expect(initialCheckpoint.sessions.filter { $0.threadScope == .project }.count == 7)
     #expect(initialCheckpoint.sessions.filter { $0.threadScope == .task }.count == 7)
+    #expect(initialCheckpoint.sessions.contains(where: \.isSubagent) == false)
     #expect(progress.first { $0.sessions.count > 14 } != nil)
-    #expect(progress.last?.sessions.count == 16)
+    #expect(progress.last?.sessions.count == 18)
     #expect(zip(progress, progress.dropFirst()).allSatisfy { pair in
         pair.0.sessions.count <= pair.1.sessions.count
     })
@@ -957,6 +1014,8 @@ import Testing
     ).report()
 
     #expect(report.contains("sessions: 1"))
+    #expect(report.contains("threads: 1"))
+    #expect(report.contains("sub-agent sessions: 0"))
     #expect(report.contains("token events: 1"))
     #expect(report.contains("scan parser: streaming-byte-scan"))
     #expect(report.contains("scan index line buffer cap:"))
@@ -1334,6 +1393,31 @@ private struct StateThreadFixture {
     let title: String
     let gitOriginURL: String?
     let archived: Bool
+    let parentThreadID: String?
+    let threadSource: String
+    let agentNickname: String?
+
+    init(
+        id: String,
+        path: String,
+        recencyMilliseconds: Int64,
+        title: String,
+        gitOriginURL: String?,
+        archived: Bool,
+        parentThreadID: String? = nil,
+        threadSource: String = "user",
+        agentNickname: String? = nil
+    ) {
+        self.id = id
+        self.path = path
+        self.recencyMilliseconds = recencyMilliseconds
+        self.title = title
+        self.gitOriginURL = gitOriginURL
+        self.archived = archived
+        self.parentThreadID = parentThreadID
+        self.threadSource = threadSource
+        self.agentNickname = agentNickname
+    }
 }
 
 private actor ScanProgressRecorder {
@@ -1388,6 +1472,8 @@ private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFix
 
     for row in rows {
         let gitOriginSQL = row.gitOriginURL.map { "'\(sqlEscaped($0))'" } ?? "NULL"
+        let parentThreadIDSQL = row.parentThreadID.map { "'\(sqlEscaped($0))'" } ?? "NULL"
+        let agentNicknameSQL = row.agentNickname.map { "'\(sqlEscaped($0))'" } ?? "NULL"
         let sql = """
         INSERT INTO threads VALUES (
             '\(sqlEscaped(row.id))',
@@ -1400,11 +1486,11 @@ private func createCodexStateDatabase(at databaseURL: URL, rows: [StateThreadFix
             'vscode',
             '0.144.3',
             'openai',
+            \(agentNicknameSQL),
             NULL,
             NULL,
-            NULL,
-            NULL,
-            'user',
+            \(parentThreadIDSQL),
+            '\(sqlEscaped(row.threadSource))',
             \(gitOriginSQL),
             \(row.archived ? 1 : 0)
         );

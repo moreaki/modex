@@ -142,8 +142,10 @@ public struct ModexSummaryReportFormatter: Sendable {
     public func lines(for summary: ModexSummary) -> [String] {
         var lines = [
             "sessions: \(summary.sessionsScanned)",
-            "project threads: \(summary.sessions.filter { CodexThreadScope.resolve(for: $0) == .project }.count)",
-            "task threads: \(summary.sessions.filter { CodexThreadScope.resolve(for: $0) == .task }.count)",
+            "threads: \(summary.topLevelThreadCount)",
+            "sub-agent sessions: \(summary.subagentCount)",
+            "project threads: \(summary.topLevelThreads.filter { CodexThreadScope.resolve(for: $0) == .project }.count)",
+            "task threads: \(summary.topLevelThreads.filter { CodexThreadScope.resolve(for: $0) == .task }.count)",
             "token events: \(summary.tokenEvents)",
             "total tokens: \(summary.totalTokens)",
             "median turn tokens: \(summary.medianTurnTokens)",

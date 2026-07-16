@@ -143,10 +143,9 @@ struct ModexMenuView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(sessionGroups) { group in
                         ProjectGroupSection(group: group) {
-                            ForEach(group.sessions) { indexedSession in
-                                SessionRow(
-                                    session: indexedSession.session,
-                                    index: indexedSession.index,
+                            ForEach(group.families) { family in
+                                ThreadFamilySection(
+                                    family: family,
                                     history: model.history,
                                     thresholds: model.settings.contextThresholds,
                                     sessionDetailHoverDelayMilliseconds: model.settings.sessionDetailHoverDelayMilliseconds
@@ -173,7 +172,7 @@ struct ModexMenuView: View {
     }
 
     private var dashboardSessions: [IndexedSession] {
-        (model.summary?.sessions ?? [])
+        (model.summary?.topLevelThreads ?? [])
             .enumerated()
             .map { IndexedSession(index: $0.offset, session: $0.element) }
     }
@@ -331,10 +330,13 @@ struct ModexMenuView: View {
         }
 
         var parts = [
-            ModexStrings.format("overview.sessions", summary.sessionsScanned),
+            localizedThreadCount(summary.topLevelThreadCount),
             ModexStrings.format("overview.tokens", compact(summary.totalTokens)),
             ModexStrings.format("overview.compactions", summary.compactionEvents),
         ]
+        if summary.subagentCount > 0 {
+            parts.insert(localizedAgentCount(summary.subagentCount), at: 1)
+        }
         if let metrics = summary.scanMetrics {
             parts.append(ModexStrings.format("overview.scanDuration", formatDuration(metrics.durationSeconds)))
         }
@@ -493,7 +495,10 @@ struct ModexThreadDetailWindow: View {
             return ModexStrings.text("overview.noMetrics")
         }
         return [
-            ModexStrings.format("overview.sessions", summary.sessionsScanned),
+            localizedThreadCount(summary.topLevelThreadCount),
+            summary.subagentCount > 0
+                ? localizedAgentCount(summary.subagentCount)
+                : nil,
             ModexStrings.format("overview.tokens", compact(summary.totalTokens)),
             ModexStrings.format("overview.compactions", summary.compactionEvents),
             summary.scanMetrics.map { ModexStrings.format("overview.scanDuration", formatDuration($0.durationSeconds)) },
@@ -551,7 +556,7 @@ struct ModexThreadDetailWindow: View {
 
             Spacer()
 
-            Text(ModexStrings.format("detail.filteredCount", filteredSessions.count, scopedSessions.count))
+            Text(ModexStrings.format("detail.filteredCount", filteredThreadCount, scopedThreadCount))
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(palette.mutedText)
         }
@@ -576,6 +581,14 @@ struct ModexThreadDetailWindow: View {
                 }
         }
         .buttonStyle(.plain)
+    }
+
+    private var filteredThreadCount: Int {
+        CodexThreadFamilyBuilder.build(from: filteredSessions).count
+    }
+
+    private var scopedThreadCount: Int {
+        CodexThreadFamilyBuilder.build(from: scopedSessions).count
     }
 
     private var tabBar: some View {
@@ -888,10 +901,9 @@ private struct ThreadOverviewTab: View {
                 tableHeader
                 ForEach(groupedSessions(sessions)) { group in
                     ProjectGroupSection(group: group) {
-                        ForEach(group.sessions) { indexedSession in
-                            SessionRow(
-                                session: indexedSession.session,
-                                index: indexedSession.index,
+                        ForEach(group.families) { family in
+                            ThreadFamilySection(
+                                family: family,
                                 history: history,
                                 thresholds: thresholds,
                                 sessionDetailHoverDelayMilliseconds: sessionDetailHoverDelayMilliseconds
@@ -1613,7 +1625,7 @@ private struct DashboardMetricGrid: View {
             DashboardMetricTile(
                 symbol: "rectangle.stack",
                 title: ModexStrings.text("dashboard.threads"),
-                value: summary.map { "\($0.sessionsScanned)" } ?? "0",
+                value: summary.map { "\($0.topLevelThreadCount)" } ?? "0",
                 detail: ModexStrings.text("dashboard.scanned")
             )
             DashboardMetricTile(
@@ -2431,10 +2443,32 @@ private struct IndexedSession: Identifiable {
     }
 }
 
+private struct IndexedThreadFamily: Identifiable {
+    let id: String
+    let representative: IndexedSession
+    let nestedAgents: [IndexedSession]
+
+    var sessions: [IndexedSession] {
+        [representative] + nestedAgents
+    }
+}
+
 private struct SessionGroup: Identifiable {
     let id: String
     let title: String
-    let sessions: [IndexedSession]
+    let families: [IndexedThreadFamily]
+
+    var sessions: [IndexedSession] {
+        families.flatMap(\.sessions)
+    }
+
+    var threadCount: Int {
+        families.count
+    }
+
+    var subagentCount: Int {
+        sessions.lazy.filter { $0.session.isSubagent }.count
+    }
 
     var totalTokens: Int {
         sessions.reduce(0) { $0 + $1.session.totalTokens }
@@ -2444,7 +2478,7 @@ private struct SessionGroup: Identifiable {
 private struct SessionGroupBuilder {
     let id: String
     let title: String
-    var sessions: [IndexedSession]
+    var families: [IndexedThreadFamily]
 }
 
 private struct ProjectGroupSection<Content: View>: View {
@@ -2456,7 +2490,8 @@ private struct ProjectGroupSection<Content: View>: View {
     var body: some View {
         ProjectGroupHeader(
             title: group.title,
-            threadCount: group.sessions.count,
+            threadCount: group.threadCount,
+            subagentCount: group.subagentCount,
             totalTokens: group.totalTokens,
             isExpanded: isExpanded
         ) {
@@ -2474,6 +2509,7 @@ private struct ProjectGroupSection<Content: View>: View {
 private struct ProjectGroupHeader: View {
     let title: String
     let threadCount: Int
+    let subagentCount: Int
     let totalTokens: Int
     let isExpanded: Bool
     let onToggle: () -> Void
@@ -2501,6 +2537,13 @@ private struct ProjectGroupHeader: View {
                     .foregroundStyle(palette.mutedText)
                     .lineLimit(1)
 
+                if subagentCount > 0 {
+                    Text(localizedAgentCount(subagentCount))
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(palette.mutedText)
+                        .lineLimit(1)
+                }
+
                 Rectangle()
                     .fill(palette.surface.opacity(isHovered ? 0.9 : 0.62))
                     .frame(height: 0.75)
@@ -2525,10 +2568,7 @@ private struct ProjectGroupHeader: View {
     }
 
     private var threadCountText: String {
-        if threadCount == 1 {
-            return ModexStrings.text("projectGroup.threadCountOne")
-        }
-        return ModexStrings.format("projectGroup.threadCountMany", threadCount)
+        localizedThreadCount(threadCount)
     }
 
     private var tokenTotalText: String {
@@ -2544,6 +2584,49 @@ private struct ProjectGroupHeader: View {
             isExpanded ? "projectGroup.collapseHelp" : "projectGroup.expandHelp",
             title
         )
+    }
+}
+
+private struct ThreadFamilySection: View {
+    let family: IndexedThreadFamily
+    let history: ModexHistorySnapshot?
+    let thresholds: ModexContextThresholds
+    let sessionDetailHoverDelayMilliseconds: Int
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        Group {
+            SessionRow(
+                session: family.representative.session,
+                index: family.representative.index,
+                history: history,
+                thresholds: thresholds,
+                sessionDetailHoverDelayMilliseconds: sessionDetailHoverDelayMilliseconds,
+                nestedAgentCount: family.nestedAgents.count,
+                isAgentGroupExpanded: isExpanded,
+                onToggleAgentGroup: family.nestedAgents.isEmpty ? nil : { toggle() }
+            )
+
+            if isExpanded {
+                ForEach(family.nestedAgents) { indexedSession in
+                    SessionRow(
+                        session: indexedSession.session,
+                        index: indexedSession.index,
+                        history: history,
+                        thresholds: thresholds,
+                        sessionDetailHoverDelayMilliseconds: sessionDetailHoverDelayMilliseconds,
+                        isAgentChild: true
+                    )
+                }
+            }
+        }
+    }
+
+    private func toggle() {
+        withAnimation(.easeInOut(duration: 0.14)) {
+            isExpanded.toggle()
+        }
     }
 }
 
@@ -2606,7 +2689,33 @@ private struct SessionRow: View {
     let history: ModexHistorySnapshot?
     let thresholds: ModexContextThresholds
     let sessionDetailHoverDelayMilliseconds: Int
+    let nestedAgentCount: Int
+    let isAgentGroupExpanded: Bool
+    let onToggleAgentGroup: (() -> Void)?
+    let isAgentChild: Bool
     @Environment(\.modexPalette) private var palette
+
+    init(
+        session: SessionSnapshot,
+        index: Int,
+        history: ModexHistorySnapshot?,
+        thresholds: ModexContextThresholds,
+        sessionDetailHoverDelayMilliseconds: Int,
+        nestedAgentCount: Int = 0,
+        isAgentGroupExpanded: Bool = false,
+        onToggleAgentGroup: (() -> Void)? = nil,
+        isAgentChild: Bool = false
+    ) {
+        self.session = session
+        self.index = index
+        self.history = history
+        self.thresholds = thresholds
+        self.sessionDetailHoverDelayMilliseconds = sessionDetailHoverDelayMilliseconds
+        self.nestedAgentCount = nestedAgentCount
+        self.isAgentGroupExpanded = isAgentGroupExpanded
+        self.onToggleAgentGroup = onToggleAgentGroup
+        self.isAgentChild = isAgentChild
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -2652,24 +2761,56 @@ private struct SessionRow: View {
     }
 
     private var sessionCell: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(sessionTitle)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(palette.text)
-                .lineLimit(1)
-            Text(sessionSubtitle)
-                .font(.system(size: 10))
-                .foregroundStyle(palette.mutedText)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        HStack(spacing: 5) {
+            identityAccessory
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(sessionTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                Text(sessionSubtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(palette.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
-        .padding(.horizontal, 8)
+        .padding(.leading, isAgentChild ? 20 : 8)
+        .padding(.trailing, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .sessionDetailTip(
             sessionTooltip,
             delayMilliseconds: sessionDetailHoverDelayMilliseconds
         )
         .accessibilityLabel(Text(sessionTooltip))
+    }
+
+    @ViewBuilder
+    private var identityAccessory: some View {
+        if let onToggleAgentGroup {
+            Button(action: onToggleAgentGroup) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(palette.mutedText)
+                    .rotationEffect(.degrees(isAgentGroupExpanded ? 90 : 0))
+                    .frame(width: 12, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(agentGroupActionHelp)
+            .accessibilityLabel(Text(agentGroupActionHelp))
+        } else if isAgentChild {
+            Image(systemName: "cpu")
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(palette.mutedText)
+                .frame(width: 12, height: 18)
+                .accessibilityHidden(true)
+        } else {
+            Color.clear
+                .frame(width: 12, height: 18)
+                .accessibilityHidden(true)
+        }
     }
 
     @ViewBuilder
@@ -2724,6 +2865,15 @@ private struct SessionRow: View {
     }
 
     private var sessionTitle: String {
+        if isAgentChild {
+            if let agentNickname = session.agentNickname, agentNickname.isEmpty == false {
+                return agentNickname
+            }
+            if let agentRole = session.agentRole, agentRole.isEmpty == false {
+                return agentRole
+            }
+            return ModexStrings.text("overview.sourceSubagent")
+        }
         if let threadName = session.threadName, threadName.isEmpty == false {
             return threadName
         }
@@ -2733,6 +2883,19 @@ private struct SessionRow: View {
     private var sessionSubtitle: String {
         if let sessionID = session.sessionID {
             let sessionLabel = ModexStrings.format("overview.sessionLabel", String(sessionID.prefix(8)))
+            if isAgentChild {
+                return [session.agentRole, sessionLabel]
+                    .compactMap { value in
+                        guard let value, value.isEmpty == false else {
+                            return nil
+                        }
+                        return value
+                    }
+                    .joined(separator: " · ")
+            }
+            if nestedAgentCount > 0 {
+                return "\(sessionLabel) · \(localizedAgentCount(nestedAgentCount))"
+            }
             if let agentNickname = session.agentNickname, agentNickname.isEmpty == false {
                 return "\(agentNickname) · \(sessionLabel)"
             }
@@ -2744,6 +2907,13 @@ private struct SessionRow: View {
             return String(fileName.dropFirst("rollout-".count))
         }
         return fileName.isEmpty ? ModexStrings.text("overview.unknownSession") : fileName
+    }
+
+    private var agentGroupActionHelp: String {
+        ModexStrings.format(
+            isAgentGroupExpanded ? "threadFamily.collapseHelp" : "threadFamily.expandHelp",
+            sessionTitle
+        )
     }
 
     private var sessionTooltip: String {
@@ -5636,27 +5806,69 @@ func durationTrendValues(
 private func groupedSessions(_ sessions: [SessionSnapshot]) -> [SessionGroup] {
     var order: [String] = []
     var groups: [String: SessionGroupBuilder] = [:]
+    let indexedSessions = sessions.enumerated().map {
+        IndexedSession(index: $0.offset, session: $0.element)
+    }
 
-    for (index, session) in sessions.enumerated() {
-        let project = projectPresentation(for: session)
+    for family in indexedThreadFamilies(indexedSessions) {
+        let project = projectPresentation(for: family.representative.session)
         let id = project.id
         if groups[id] == nil {
             order.append(id)
             groups[id] = SessionGroupBuilder(
                 id: id,
                 title: project.title,
-                sessions: []
+                families: []
             )
         }
-        groups[id]?.sessions.append(IndexedSession(index: index, session: session))
+        groups[id]?.families.append(family)
     }
 
     return order.compactMap { id in
         guard let group = groups[id] else {
             return nil
         }
-        return SessionGroup(id: group.id, title: group.title, sessions: group.sessions)
+        return SessionGroup(
+            id: group.id,
+            title: group.title,
+            families: group.families
+        )
     }
+}
+
+private func indexedThreadFamilies(_ sessions: [IndexedSession]) -> [IndexedThreadFamily] {
+    let sessionsByPath = Dictionary(
+        sessions.map { ($0.session.fileURL.standardizedFileURL.path, $0) },
+        uniquingKeysWith: { first, _ in first }
+    )
+
+    return CodexThreadFamilyBuilder.build(from: sessions.map(\.session)).compactMap { family in
+        guard let representative = sessionsByPath[family.representative.fileURL.standardizedFileURL.path] else {
+            return nil
+        }
+        let nestedAgents = family.nestedAgents.compactMap {
+            sessionsByPath[$0.fileURL.standardizedFileURL.path]
+        }
+        return IndexedThreadFamily(
+            id: family.id,
+            representative: representative,
+            nestedAgents: nestedAgents
+        )
+    }
+}
+
+private func localizedThreadCount(_ count: Int) -> String {
+    if count == 1 {
+        return ModexStrings.text("projectGroup.threadCountOne")
+    }
+    return ModexStrings.format("projectGroup.threadCountMany", count)
+}
+
+private func localizedAgentCount(_ count: Int) -> String {
+    if count == 1 {
+        return ModexStrings.text("agentCount.one")
+    }
+    return ModexStrings.format("agentCount.many", count)
 }
 
 private func projectTitle(for session: SessionSnapshot) -> String {

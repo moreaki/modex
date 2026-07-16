@@ -482,7 +482,10 @@ public final class CodexSessionScanner {
     }
 
     private static func apply(metadata: CodexThreadMetadata, to snapshot: inout SessionSnapshot) {
-        snapshot.sessionID = snapshot.sessionID ?? metadata.sessionID
+        // The Codex index identifies the rollout file authoritatively. Sub-agent logs may
+        // repeat inherited parent metadata later in the file, but that must not replace
+        // the child's own session identity.
+        snapshot.sessionID = metadata.sessionID
         snapshot.threadName = metadata.threadName ?? snapshot.threadName
         snapshot.workingDirectory = snapshot.workingDirectory ?? metadata.workingDirectory
         snapshot.gitOriginURL = metadata.gitOriginURL ?? snapshot.gitOriginURL
@@ -564,7 +567,15 @@ public final class CodexSessionScanner {
     ) -> (candidates: [SessionFileCandidate], initialCount: Int) {
         let initialCountPerScope = max(1, initialCountPerScope)
         guard let sidebarState else {
-            return (candidates, min(candidates.count, initialCountPerScope))
+            let initialCandidates = Array(
+                candidates.lazy.filter { $0.isSubagent == false }.prefix(initialCountPerScope)
+            )
+            guard initialCandidates.isEmpty == false else {
+                return (candidates, min(candidates.count, initialCountPerScope))
+            }
+            let initialPaths = Set(initialCandidates.map { $0.url.path })
+            let remainingCandidates = candidates.filter { initialPaths.contains($0.url.path) == false }
+            return (initialCandidates + remainingCandidates, initialCandidates.count)
         }
 
         var projectCount = 0
@@ -573,6 +584,9 @@ public final class CodexSessionScanner {
         initialPaths.reserveCapacity(initialCountPerScope * 2)
 
         for candidate in candidates {
+            guard candidate.isSubagent == false else {
+                continue
+            }
             guard let sessionID = candidate.metadata?.sessionID ?? sessionID(from: candidate.url) else {
                 continue
             }
@@ -680,6 +694,15 @@ fileprivate struct SessionFileCandidate: Sendable {
     let modificationDate: Date
     let fileSize: Int
     let metadata: CodexThreadMetadata?
+
+    var isSubagent: Bool {
+        if let source = metadata?.threadSource,
+           source.caseInsensitiveCompare("subagent") == .orderedSame
+        {
+            return true
+        }
+        return metadata?.parentThreadID?.isEmpty == false
+    }
 }
 
 private struct SessionFileDiscovery: Sendable {
@@ -1043,6 +1066,7 @@ private final class FastCodexJSONLParser {
         }
 
         let isSessionMeta = topLevelType == "session_meta"
+        let isOwnSessionMeta = isSessionMeta && state.hasParsedSessionMetadata == false
         let payloadType = isSessionMeta ? nil : FastJSONValue.string(after: FastJSONPattern.payloadType, in: line)
         let isTokenCount = topLevelType == "token_count" || payloadType == "token_count"
         let isTurnContext = topLevelType == "turn_context" || payloadType == "turn_context"
@@ -1060,7 +1084,7 @@ private final class FastCodexJSONLParser {
         let isCompaction = topLevelType.contains("compact")
             || payloadType?.contains("compact") == true
 
-        guard isSessionMeta
+        guard isOwnSessionMeta
             || isTokenCount
             || isTurnContext
             || isThreadSettings
@@ -1085,7 +1109,8 @@ private final class FastCodexJSONLParser {
         }
         snapshot.updatedAt = timestamp ?? snapshot.updatedAt
 
-        if isSessionMeta {
+        if isOwnSessionMeta {
+            state.hasParsedSessionMetadata = true
             snapshot.sessionID = FastJSONValue.string(after: FastJSONPattern.payloadID, in: line)
                 ?? FastJSONValue.string(after: FastJSONPattern.id, in: line)
                 ?? snapshot.sessionID
@@ -1106,6 +1131,8 @@ private final class FastCodexJSONLParser {
                 ?? snapshot.agentPath
             snapshot.parentThreadID = nonEmpty(FastJSONValue.string(after: FastJSONPattern.parentThreadID, in: line))
                 ?? snapshot.parentThreadID
+            snapshot.threadSource = nonEmpty(FastJSONValue.string(after: FastJSONPattern.threadSource, in: line))
+                ?? snapshot.threadSource
         }
 
         if isTokenCount {
@@ -1436,6 +1463,7 @@ private final class FastCodexJSONLParser {
 }
 
 private struct FastParserState {
+    var hasParsedSessionMetadata = false
     var pendingCommandNames: [String: String] = [:]
     var countedCommandCallIDs: Set<String> = []
     private var lastCompactionTimestamp: Date?
@@ -1994,6 +2022,7 @@ private enum FastJSONPattern {
     static let agentRole = Array("\"agent_role\":\"".utf8)
     static let agentPath = Array("\"agent_path\":\"".utf8)
     static let parentThreadID = Array("\"parent_thread_id\":\"".utf8)
+    static let threadSource = Array("\"thread_source\":\"".utf8)
     static let durationMilliseconds = Array("\"duration_ms\":".utf8)
     static let timeToFirstTokenMilliseconds = Array("\"time_to_first_token_ms\":".utf8)
     static let exitCode = Array("\"exit_code\":".utf8)

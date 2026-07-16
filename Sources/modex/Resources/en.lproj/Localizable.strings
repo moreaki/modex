@@ -242,6 +242,12 @@
 "projectGroup.threadCountMany" = "%d threads";
 "projectGroup.tokenTotal" = "%@ tokens";
 
+"agentCount.one" = "1 agent";
+"agentCount.many" = "%d agents";
+
+"threadFamily.collapseHelp" = "Collapse agents for %@";
+"threadFamily.expandHelp" = "Show agents for %@";
+
 "threadScope.projectThreads" = "Project Threads";
 "threadScope.projects" = "Projects";
 "threadScope.taskThreads" = "Task Threads";

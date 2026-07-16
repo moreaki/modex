@@ -215,6 +215,15 @@ public struct SessionSnapshot: Equatable, Sendable {
         tokenEvents.last
     }
 
+    public var isSubagent: Bool {
+        if let threadSource,
+           threadSource.caseInsensitiveCompare("subagent") == .orderedSame
+        {
+            return true
+        }
+        return parentThreadID?.isEmpty == false
+    }
+
     public var totalTokens: Int {
         latestTokenEvent?.totalUsage.totalTokens ?? 0
     }
@@ -373,11 +382,19 @@ public struct ModexSummary: Equatable, Sendable {
     public let latestRateLimitsObservedAt: Date?
     public let latestSession: SessionSnapshot?
     public let contextSession: SessionSnapshot?
+    public let topLevelThreads: [SessionSnapshot]
+    public let subagentCount: Int
+
+    public var topLevelThreadCount: Int {
+        topLevelThreads.count
+    }
 
     public init(sessions: [SessionSnapshot], scanMetrics: ScanMetrics? = nil) {
         self.sessions = sessions.sorted {
             ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
         }
+        topLevelThreads = CodexThreadFamilyBuilder.build(from: self.sessions).map(\.representative)
+        subagentCount = self.sessions.lazy.filter(\.isSubagent).count
         self.scanMetrics = scanMetrics
         sessionsScanned = sessions.count
         tokenEvents = sessions.reduce(0) { $0 + $1.tokenEvents.count }
