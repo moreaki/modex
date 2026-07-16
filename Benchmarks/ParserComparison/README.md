@@ -21,6 +21,10 @@ Run the full local corpus with Modex's concurrent scanner path:
 swift run -c release ParserComparison --limit 100000 --include-archived --iterations 3 --only modex --concurrency 4
 ```
 
+Add `--cache` to populate Modex's scan cache during the untimed warmup and
+measure exact-cache refreshes during the timed iterations. Leave it off for
+cold parser comparisons.
+
 Run a reproducible macOS-native measurement matrix:
 
 ```bash

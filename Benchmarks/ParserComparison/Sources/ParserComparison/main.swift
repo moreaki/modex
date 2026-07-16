@@ -9,6 +9,7 @@ private struct Options {
     var includeArchived = false
     var maximumConcurrentParses = CodexSessionScannerConfiguration.defaultMaximumConcurrentParses
     var onlyVariant: String?
+    var cacheEnabled = false
     var chunkSizeBytes = CodexSessionScannerConfiguration.defaultChunkSizeBytes
     var codexHome = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
 
@@ -35,6 +36,8 @@ private struct Options {
                 }
             case "--only":
                 onlyVariant = Self.stringValue(after: &index, in: arguments)
+            case "--cache":
+                cacheEnabled = true
             case "--codex-home":
                 if let value = Self.stringValue(after: &index, in: arguments), value.isEmpty == false {
                     codexHome = URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
@@ -79,6 +82,7 @@ private struct Options {
               --concurrency N       File concurrency for all parser variants. Default: scanner default
               --chunk-kb N          Streaming read chunk size. Default: 256
               --only NAME           One variant: modex, nio-scan, ikiga-prefilter, ikiga-all
+              --cache               Reuse Modex's scan cache after the warmup pass
               --codex-home PATH     Codex home folder. Default: ~/.codex
             """
         )
@@ -181,15 +185,17 @@ print("Codex home: \(options.codexHome.path)")
 print("Files: \(files.count) newest \(options.includeArchived ? "active+archived" : "active") JSONL files")
 print("Bytes: \(formatBytes(totalBytes))")
 print("File concurrency: \(options.maximumConcurrentParses)x configured")
+print("Modex scan cache: \(options.cacheEnabled ? "enabled" : "disabled")")
 print("Iterations: \(options.iterations) timed after one warmup")
 print("Build: use -c release for meaningful Swift parser timings")
 print("")
 
 private var results: [BenchmarkResult] = []
 if shouldRun("modex", options: options) {
+    let scanCache = options.cacheEnabled ? CodexSessionScanCache() : nil
     results.append(
-        try benchmark(name: "modex-streaming-byte-scan", iterations: options.iterations) {
-            try runModexScanner(options: options)
+        try await benchmarkAsync(name: "modex-streaming-byte-scan", iterations: options.iterations) {
+            try await runModexScanner(options: options, cache: scanCache)
         }
     )
 }
@@ -261,17 +267,20 @@ private func shouldRun(_ variant: String, options: Options) -> Bool {
     return onlyVariant == variant
 }
 
-private func runModexScanner(options: Options) throws -> ParseCounters {
+private func runModexScanner(
+    options: Options,
+    cache: CodexSessionScanCache?
+) async throws -> ParseCounters {
     let configuration = CodexSessionScannerConfiguration(
         maximumConcurrentParses: options.maximumConcurrentParses,
         chunkSizeBytes: options.chunkSizeBytes,
         includeArchivedSessions: options.includeArchived
     )
-    let result = try CodexSessionScanner(
+    let result = try await CodexSessionScanner(
         codexHome: options.codexHome,
         configuration: configuration
     )
-        .scanResult(limit: options.limit)
+        .scanResult(limit: options.limit, cache: cache)
 
     return ParseCounters(
         files: result.metrics.filesParsed,
@@ -788,6 +797,30 @@ private func benchmark(
     for _ in 0..<iterations {
         let start = DispatchTime.now().uptimeNanoseconds
         let counters = try body()
+        let end = DispatchTime.now().uptimeNanoseconds
+        samples.append(Double(end - start) / 1_000_000_000)
+        finalCounters = counters
+    }
+
+    return BenchmarkResult(
+        name: name,
+        samples: samples,
+        counters: finalCounters ?? ParseCounters()
+    )
+}
+
+private func benchmarkAsync(
+    name: String,
+    iterations: Int,
+    body: () async throws -> ParseCounters
+) async throws -> BenchmarkResult {
+    _ = try await body()
+    var samples: [Double] = []
+    var finalCounters: ParseCounters?
+
+    for _ in 0..<iterations {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let counters = try await body()
         let end = DispatchTime.now().uptimeNanoseconds
         samples.append(Double(end - start) / 1_000_000_000)
         finalCounters = counters
