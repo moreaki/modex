@@ -277,7 +277,6 @@
 "dashboard.filesDetail" = "File modificati: %d";
 "dashboard.fileEvents" = "eventi di modifica";
 "dashboard.filesShort" = "%d file";
-"dashboard.highestContext" = "Contesto massimo";
 "dashboard.intelligenceConnection" = "Codex · %@";
 "dashboard.mcpCalls" = "Chiamate MCP";
 "dashboard.moreActivity" = "Altra attività";
@@ -294,7 +293,9 @@
 "dashboard.toolsShort" = "%d strumenti";
 "dashboard.turnsDetail" = "Turni completati: %d";
 "dashboard.unknownCommand" = "Comando";
-"dashboard.watch" = "osserva";
+"dashboard.weeklyQuota" = "Quota di 7 giorni";
+"dashboard.weeklyQuotaAccount" = "Capacità dell’account Codex";
+"dashboard.weeklyQuotaReset" = "si azzera %@";
 "dashboard.webSearches" = "Ricerche web";
 
 "detail.activity" = "Attività";

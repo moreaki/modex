@@ -277,7 +277,6 @@
 "dashboard.filesDetail" = "Files changed: %d";
 "dashboard.fileEvents" = "change events";
 "dashboard.filesShort" = "%d files";
-"dashboard.highestContext" = "Highest context";
 "dashboard.intelligenceConnection" = "Codex · %@";
 "dashboard.mcpCalls" = "MCP calls";
 "dashboard.moreActivity" = "More activity";
@@ -294,7 +293,9 @@
 "dashboard.toolsShort" = "%d tools";
 "dashboard.turnsDetail" = "Completed turns: %d";
 "dashboard.unknownCommand" = "Command";
-"dashboard.watch" = "watch";
+"dashboard.weeklyQuota" = "7-day quota";
+"dashboard.weeklyQuotaAccount" = "Codex account capacity";
+"dashboard.weeklyQuotaReset" = "resets %@";
 "dashboard.webSearches" = "Web searches";
 
 "detail.activity" = "Activity";

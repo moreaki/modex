@@ -196,10 +196,6 @@ private struct ModexMenuBarHoverCard: View {
                         )
                     }
                     valueRow(
-                        ModexStrings.text("dashboard.highestContext"),
-                        contextLeftValue(summary)
-                    )
-                    valueRow(
                         ModexStrings.text("column.median.title"),
                         summary.medianTurnTokens.formatted()
                     )
@@ -223,25 +219,6 @@ private struct ModexMenuBarHoverCard: View {
         .padding(12)
         .frame(width: 245, alignment: .leading)
         .background(palette.background)
-    }
-
-    private func contextLeftValue(_ summary: ModexSummary) -> String {
-        guard let percent = summary.contextLeftPercent else {
-            return ModexStrings.text("app.unknownContext")
-        }
-
-        if let usedTokens = summary.contextSession?.contextUsedTokens,
-           let contextWindow = summary.contextSession?.contextWindow
-        {
-            return ModexStrings.format(
-                "app.contextLeftDetailed",
-                Int(percent.rounded()),
-                usedTokens.formatted(),
-                contextWindow.formatted()
-            )
-        }
-
-        return ModexStrings.format("app.percentLeft", Int(percent.rounded()))
     }
 
     private func limitValue(_ window: CodexRateLimitWindow?) -> String {

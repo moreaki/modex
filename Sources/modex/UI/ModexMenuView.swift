@@ -1545,10 +1545,10 @@ private struct DashboardMetricGrid: View {
                 detail: ModexStrings.text("dashboard.scanned")
             )
             DashboardMetricTile(
-                symbol: "gauge.medium",
-                title: ModexStrings.text("dashboard.highestContext"),
-                value: percentText(highestContext),
-                detail: ModexStrings.text("dashboard.watch")
+                symbol: "calendar.badge.clock",
+                title: ModexStrings.text("dashboard.weeklyQuota"),
+                value: weeklyQuotaValue,
+                detail: weeklyQuotaDetail
             )
             DashboardMetricTile(
                 symbol: "sum",
@@ -1569,8 +1569,22 @@ private struct DashboardMetricGrid: View {
         summary?.sessions ?? []
     }
 
-    private var highestContext: Double? {
-        summary?.contextUsagePercent
+    private var weeklyQuota: CodexRateLimitWindow? {
+        summary?.latestRateLimits?.sevenDayWindow
+    }
+
+    private var weeklyQuotaValue: String {
+        guard let weeklyQuota else {
+            return ModexStrings.text("overview.contextUnavailable")
+        }
+        return ModexStrings.format("overview.limitLeft", Int(weeklyQuota.leftPercent.rounded()))
+    }
+
+    private var weeklyQuotaDetail: String {
+        guard let resetsAt = weeklyQuota?.resetsAt else {
+            return ModexStrings.text("dashboard.weeklyQuotaAccount")
+        }
+        return ModexStrings.format("dashboard.weeklyQuotaReset", compactResetText(for: resetsAt))
     }
 
     private var failedCommands: Int {
@@ -2580,22 +2594,18 @@ private struct CodexRateLimitRow: View {
             return ModexStrings.format(
                 "overview.limitLeftResetCompact",
                 percent,
-                Self.resetText(for: resetsAt)
+                compactResetText(for: resetsAt)
             )
         }
         return ModexStrings.format("overview.limitLeft", percent)
     }
+}
 
-    private static func resetText(for date: Date) -> String {
-        let formatter = DateFormatter()
-        if Calendar.autoupdatingCurrent.isDateInToday(date) {
-            formatter.dateStyle = .none
-            formatter.timeStyle = .short
-        } else {
-            formatter.setLocalizedDateFormatFromTemplate("MMM d")
-        }
-        return formatter.string(from: date)
+private func compactResetText(for date: Date) -> String {
+    if Calendar.autoupdatingCurrent.isDateInToday(date) {
+        return date.formatted(date: .omitted, time: .shortened)
     }
+    return date.formatted(.dateTime.month(.abbreviated).day())
 }
 
 private struct CodexRateLimitBar: View {
