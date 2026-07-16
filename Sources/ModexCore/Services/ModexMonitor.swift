@@ -9,22 +9,19 @@ public struct ModexMonitorConfiguration: Equatable, Sendable {
     public let refreshIntervalSeconds: TimeInterval
     public let scannerConfiguration: CodexSessionScannerConfiguration
     public let scanCacheEnabled: Bool
-    public let codexExecutablePath: String?
 
     public init(
         codexHome: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex"),
         scanLimit: Int? = nil,
         refreshIntervalSeconds: TimeInterval = Self.defaultRefreshIntervalSeconds,
         scannerConfiguration: CodexSessionScannerConfiguration = .default,
-        scanCacheEnabled: Bool = true,
-        codexExecutablePath: String? = nil
+        scanCacheEnabled: Bool = true
     ) {
         self.codexHome = codexHome
         self.scanLimit = scanLimit
         self.refreshIntervalSeconds = refreshIntervalSeconds
         self.scannerConfiguration = scannerConfiguration
         self.scanCacheEnabled = scanCacheEnabled
-        self.codexExecutablePath = codexExecutablePath
     }
 }
 
@@ -71,7 +68,6 @@ public actor ModexMonitor {
         let scanCache = scanCache
         let task = Task.detached(priority: .userInitiated) { () -> ModexRefreshResult in
             do {
-                let statusRateLimits = Self.latestAppServerRateLimits(configuration)
                 let scanResult = try await CodexSessionScanner(
                     codexHome: configuration.codexHome,
                     configuration: configuration.scannerConfiguration
@@ -87,16 +83,14 @@ public actor ModexMonitor {
                             await onProgress(
                                 ModexSummary(
                                     sessions: scanResult.sessions,
-                                    scanMetrics: scanResult.metrics,
-                                    statusRateLimits: statusRateLimits
+                                    scanMetrics: scanResult.metrics
                                 )
                             )
                         }
                     )
                 let summary = ModexSummary(
                     sessions: scanResult.sessions,
-                    scanMetrics: scanResult.metrics,
-                    statusRateLimits: statusRateLimits
+                    scanMetrics: scanResult.metrics
                 )
                 return .success(summary)
             } catch {
@@ -113,16 +107,6 @@ public actor ModexMonitor {
         }
 
         return result
-    }
-
-    private static func latestAppServerRateLimits(_ configuration: ModexMonitorConfiguration) -> CodexRateLimits? {
-        guard let executablePath = configuration.codexExecutablePath else {
-            return nil
-        }
-        return try? CodexAppServerRateLimitReader(
-            executablePath: executablePath,
-            codexHome: configuration.codexHome
-        ).latestRateLimits()
     }
 }
 

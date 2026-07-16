@@ -56,8 +56,7 @@ enum ModexMain {
                     defaultValue: CodexSessionScannerConfiguration.defaultSessionIndexLineBufferBytes / 1024
                 ) * 1024,
                 includeArchivedSessions: CommandLine.arguments.contains("--include-archived")
-            ),
-            codexExecutablePath: "codex"
+            )
         )
     }
 
