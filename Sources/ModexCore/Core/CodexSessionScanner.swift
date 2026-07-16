@@ -341,9 +341,17 @@ public final class CodexSessionScanner {
         return finalResult
     }
 
-    public func summary(limit: Int? = nil, cache: CodexSessionScanCache? = nil) async throws -> ModexSummary {
+    public func summary(
+        limit: Int? = nil,
+        cache: CodexSessionScanCache? = nil,
+        statusRateLimits: CodexRateLimits? = nil
+    ) async throws -> ModexSummary {
         let result = try await scanResult(limit: limit, cache: cache)
-        return ModexSummary(sessions: result.sessions, scanMetrics: result.metrics)
+        return ModexSummary(
+            sessions: result.sessions,
+            scanMetrics: result.metrics,
+            statusRateLimits: statusRateLimits
+        )
     }
 
     private static func parseConcurrently(
@@ -1253,9 +1261,22 @@ private final class FastCodexJSONLParser {
     }
 
     private func appendTokenEvent(line: Data.SubSequence, timestamp: Date?, snapshot: inout SessionSnapshot) {
+        let limits = rateLimits(line)
         guard let last = FastJSONValue.object(after: FastJSONPattern.lastTokenUsage, in: line),
               let total = FastJSONValue.object(after: FastJSONPattern.totalTokenUsage, in: line)
         else {
+            guard let limits else {
+                return
+            }
+            snapshot.tokenEvents.append(
+                TokenEvent(
+                    timestamp: timestamp,
+                    lastUsage: TokenUsage(),
+                    totalUsage: TokenUsage(),
+                    modelContextWindow: nil,
+                    rateLimits: limits
+                )
+            )
             return
         }
 
@@ -1265,7 +1286,7 @@ private final class FastCodexJSONLParser {
                 lastUsage: tokenUsage(last),
                 totalUsage: tokenUsage(total),
                 modelContextWindow: FastJSONValue.int(after: FastJSONPattern.modelContextWindow, in: line),
-                rateLimits: rateLimits(line)
+                rateLimits: limits
             )
         )
     }
@@ -1415,21 +1436,21 @@ private final class FastCodexJSONLParser {
             return nil
         }
 
-        let primary = FastJSONValue
-            .object(after: FastJSONPattern.primaryRateLimit, in: object)
-            .flatMap(rateLimitWindow)
-        let secondary = FastJSONValue
-            .object(after: FastJSONPattern.secondaryRateLimit, in: object)
-            .flatMap(rateLimitWindow)
-        let limitID = FastJSONValue.string(after: FastJSONPattern.limitID, in: object)
-        let limitName = FastJSONValue.string(after: FastJSONPattern.limitName, in: object)
+        let generalBucket = rateLimitBucket(
+            object,
+            defaultID: CodexRateLimitBucket.generalID,
+            defaultName: "General"
+        )
+        let individualBucket = FastJSONValue
+            .object(after: FastJSONPattern.individualLimit, in: object)
+            .flatMap {
+                rateLimitBucket($0, defaultID: nil, defaultName: nil)
+            }
         let planType = FastJSONValue.string(after: FastJSONPattern.planType, in: object)
         let reachedType = FastJSONValue.string(after: FastJSONPattern.rateLimitReachedType, in: object)
+        let buckets = [generalBucket, individualBucket].compactMap(\.self)
 
-        guard primary != nil
-            || secondary != nil
-            || limitID != nil
-            || limitName != nil
+        guard buckets.isEmpty == false
             || planType != nil
             || reachedType != nil
         else {
@@ -1437,12 +1458,42 @@ private final class FastCodexJSONLParser {
         }
 
         return CodexRateLimits(
-            primary: primary,
-            secondary: secondary,
-            limitID: limitID,
-            limitName: limitName,
+            buckets: buckets,
             planType: planType,
             reachedType: reachedType
+        )
+    }
+
+    private func rateLimitBucket(
+        _ object: Data.SubSequence,
+        defaultID: String?,
+        defaultName: String?
+    ) -> CodexRateLimitBucket? {
+        let primary = FastJSONValue
+            .object(after: FastJSONPattern.primaryRateLimit, in: object)
+            .flatMap(rateLimitWindow)
+        let secondary = FastJSONValue
+            .object(after: FastJSONPattern.secondaryRateLimit, in: object)
+            .flatMap(rateLimitWindow)
+        let limitID = FastJSONValue.string(after: FastJSONPattern.limitID, in: object) ?? defaultID
+        let limitName = FastJSONValue.string(after: FastJSONPattern.limitName, in: object) ?? defaultName
+        let planType = FastJSONValue.string(after: FastJSONPattern.planType, in: object)
+
+        guard primary != nil
+            || secondary != nil
+            || limitID != nil
+            || limitName != nil
+            || planType != nil
+        else {
+            return nil
+        }
+
+        return CodexRateLimitBucket(
+            id: limitID,
+            name: limitName,
+            primary: primary,
+            secondary: secondary,
+            planType: planType
         )
     }
 
@@ -2095,6 +2146,7 @@ private enum FastJSONPattern {
     static let totalTokenUsage = Array("\"total_token_usage\":{".utf8)
     static let modelContextWindow = Array("\"model_context_window\":".utf8)
     static let rateLimits = Array("\"rate_limits\":{".utf8)
+    static let individualLimit = Array("\"individual_limit\":{".utf8)
     static let primaryRateLimit = Array("\"primary\":{".utf8)
     static let secondaryRateLimit = Array("\"secondary\":{".utf8)
     static let usedPercent = Array("\"used_percent\":".utf8)

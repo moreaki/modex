@@ -49,6 +49,7 @@ public struct CodexRateLimits: Equatable, Sendable {
     public let secondary: CodexRateLimitWindow?
     public let limitID: String?
     public let limitName: String?
+    public let buckets: [CodexRateLimitBucket]
     public let planType: String?
     public let reachedType: String?
 
@@ -66,10 +67,44 @@ public struct CodexRateLimits: Equatable, Sendable {
         self.limitName = limitName
         self.planType = planType
         self.reachedType = reachedType
+        if primary != nil || secondary != nil || limitID != nil || limitName != nil || planType != nil {
+            buckets = [
+                CodexRateLimitBucket(
+                    id: limitID ?? CodexRateLimitBucket.generalID,
+                    name: limitName,
+                    primary: primary,
+                    secondary: secondary,
+                    planType: planType
+                ),
+            ]
+        } else {
+            buckets = []
+        }
+    }
+
+    public init(buckets: [CodexRateLimitBucket], planType: String? = nil, reachedType: String? = nil) {
+        self.buckets = buckets
+        let preferredBucket = buckets.first { $0.isGeneral } ?? buckets.first
+        primary = preferredBucket?.primary
+        secondary = preferredBucket?.secondary
+        limitID = preferredBucket?.id
+        limitName = preferredBucket?.name
+        self.planType = planType ?? preferredBucket?.planType ?? buckets.compactMap(\.planType).first
+        self.reachedType = reachedType
+    }
+
+    public var generalBucket: CodexRateLimitBucket? {
+        buckets.first { $0.isGeneral } ?? buckets.first
+    }
+
+    public var sparkBucket: CodexRateLimitBucket? {
+        buckets.first { $0.isSpark }
     }
 
     public var mostConstrainedLeftPercent: Double? {
-        [primary?.leftPercent, secondary?.leftPercent]
+        let bucketWindows = buckets.flatMap { [$0.primary?.leftPercent, $0.secondary?.leftPercent] }
+        let legacyWindows = [primary?.leftPercent, secondary?.leftPercent]
+        return (bucketWindows + legacyWindows)
             .compactMap(\.self)
             .min()
     }
@@ -97,6 +132,88 @@ public struct CodexRateLimits: Equatable, Sendable {
         }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized.isEmpty ? nil : normalized
+    }
+}
+
+public struct CodexRateLimitBucket: Equatable, Sendable {
+    public static let generalID = "codex"
+    public static let sparkID = "gpt-5.3-codex-spark"
+
+    public let id: String?
+    public let name: String?
+    public let primary: CodexRateLimitWindow?
+    public let secondary: CodexRateLimitWindow?
+    public let planType: String?
+
+    public init(
+        id: String?,
+        name: String?,
+        primary: CodexRateLimitWindow? = nil,
+        secondary: CodexRateLimitWindow? = nil,
+        planType: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.primary = primary
+        self.secondary = secondary
+        self.planType = planType
+    }
+
+    public var displayName: String {
+        if isGeneral {
+            return "General"
+        }
+        if isSpark {
+            return "GPT-5.3-Codex-Spark"
+        }
+        if let name, name.isEmpty == false {
+            return name
+        }
+        if let id, id.isEmpty == false {
+            return id
+        }
+        return "Codex"
+    }
+
+    public var key: String {
+        Self.normalizedKey(id ?? name ?? displayName)
+    }
+
+    public var isGeneral: Bool {
+        let values = normalizedIDAndName
+        return values.contains(Self.generalID) || values.contains("general")
+    }
+
+    public var isSpark: Bool {
+        normalizedIDAndName.contains { value in
+            value.contains("spark")
+        }
+    }
+
+    public var hasLimitWindows: Bool {
+        primary != nil || secondary != nil
+    }
+
+    public func hasFreshLimitWindow(at date: Date) -> Bool {
+        [primary, secondary].contains { window in
+            guard let window else {
+                return false
+            }
+            guard let resetsAt = window.resetsAt else {
+                return true
+            }
+            return resetsAt >= date
+        }
+    }
+
+    private var normalizedIDAndName: [String] {
+        [id, name]
+            .compactMap(\.self)
+            .map(Self.normalizedKey)
+    }
+
+    private static func normalizedKey(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
@@ -389,7 +506,11 @@ public struct ModexSummary: Equatable, Sendable {
         topLevelThreads.count
     }
 
-    public init(sessions: [SessionSnapshot], scanMetrics: ScanMetrics? = nil) {
+    public init(
+        sessions: [SessionSnapshot],
+        scanMetrics: ScanMetrics? = nil,
+        statusRateLimits: CodexRateLimits? = nil
+    ) {
         self.sessions = sessions.sorted {
             ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
         }
@@ -421,8 +542,51 @@ public struct ModexSummary: Equatable, Sendable {
         contextLeftPercent = contextSession?.contextLeftPercent
 
         let generalRateLimits = Self.latestGeneralRateLimits(in: self.sessions)
-        latestRateLimits = generalRateLimits?.limits
+        let fallbackRateLimits = statusRateLimits == nil
+            ? generalRateLimits?.limits
+            : Self.latestRateLimits(in: self.sessions)
+        latestRateLimits = Self.mergedRateLimits(
+            preferred: statusRateLimits,
+            fallback: fallbackRateLimits
+        )
         latestRateLimitsObservedAt = generalRateLimits?.observedAt
+    }
+
+    private static func mergedRateLimits(
+        preferred: CodexRateLimits?,
+        fallback: CodexRateLimits?
+    ) -> CodexRateLimits? {
+        guard preferred != nil || fallback != nil else {
+            return nil
+        }
+
+        var bucketsByKey: [String: CodexRateLimitBucket] = [:]
+        for bucket in fallback?.buckets ?? [] {
+            bucketsByKey[bucket.key] = bucket
+        }
+        for bucket in preferred?.buckets ?? [] {
+            bucketsByKey[bucket.key] = bucket
+        }
+
+        let buckets = orderedBuckets(Array(bucketsByKey.values))
+        let planType = preferred?.planType ?? fallback?.planType
+        let reachedType = preferred?.reachedType ?? fallback?.reachedType
+        if buckets.isEmpty {
+            return preferred ?? fallback
+        }
+        return CodexRateLimits(buckets: buckets, planType: planType, reachedType: reachedType)
+    }
+
+    private static func orderedBuckets(_ buckets: [CodexRateLimitBucket]) -> [CodexRateLimitBucket] {
+        buckets.sorted { lhs, rhs in
+            if lhs.isGeneral != rhs.isGeneral {
+                return lhs.isGeneral
+            }
+            if lhs.isSpark != rhs.isSpark {
+                return rhs.isSpark == false
+            }
+            return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+        }
     }
 
     private static func median(_ values: [Int]) -> Int {
@@ -472,6 +636,38 @@ public struct ModexSummary: Equatable, Sendable {
         }
 
         return selected.map { ($0.limits, $0.observedAt) }
+    }
+
+    private static func latestRateLimits(in sessions: [SessionSnapshot]) -> CodexRateLimits? {
+        var latestBuckets: [String: (bucket: CodexRateLimitBucket, orderingDate: Date)] = [:]
+        var latestPlanType: (value: String, orderingDate: Date)?
+
+        for session in sessions {
+            for event in session.tokenEvents {
+                guard let limits = event.rateLimits else {
+                    continue
+                }
+
+                let orderingDate = event.timestamp ?? session.updatedAt ?? .distantPast
+                if let planType = limits.planType,
+                   latestPlanType == nil || orderingDate >= latestPlanType!.orderingDate
+                {
+                    latestPlanType = (planType, orderingDate)
+                }
+
+                for bucket in limits.buckets where bucket.hasLimitWindows {
+                    if latestBuckets[bucket.key] == nil || orderingDate >= latestBuckets[bucket.key]!.orderingDate {
+                        latestBuckets[bucket.key] = (bucket, orderingDate)
+                    }
+                }
+            }
+        }
+
+        let buckets = orderedBuckets(latestBuckets.values.map(\.bucket))
+        guard buckets.isEmpty == false || latestPlanType != nil else {
+            return nil
+        }
+        return CodexRateLimits(buckets: buckets, planType: latestPlanType?.value)
     }
 }
 
