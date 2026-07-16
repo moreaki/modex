@@ -95,6 +95,8 @@ General settings cover refresh interval, archived-thread inclusion, scan cache e
 
 The Intelligence settings section controls optional Codex-assisted narrative interpretation. Modex remains deterministic and local-first by default: facts, charts, sparklines, and reason-coded insights work without sending prompt text anywhere. When enabled, the Local Codex provider uses `codex exec --ephemeral` with a strict output schema and a compact metrics bundle. The connection test turns green only after a real structured insight response is validated.
 
+A successful Intelligence test stores a small verification receipt in `UserDefaults`: provider, executable path, and verification timestamp. Relaunching restores the verified state only when the active configuration still matches that receipt. Changing the provider or executable requires a new test; failed verification invalidates the matching receipt.
+
 Settings are stored in macOS `UserDefaults` under the app domain `ch.moreaki.modex`. The parsed scan cache is intentionally in-memory only and is rebuilt after app restart. Growing active JSONL files resume from a verified append checkpoint; rewritten or truncated files automatically fall back to a full streaming parse.
 
 History samples are stored in a compact SQLite database at:

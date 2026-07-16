@@ -113,6 +113,7 @@ Treat it as a fast monitoring utility first. The primary UX goal is calm, immedi
 - Settings should feel like a native, calm macOS configuration surface, not a debug panel.
 - Keep the main settings tabs clear: General, Appearance, Context, and Expert.
 - If agent-assisted insight is added, expose Codex connectivity as a clear settings section with enablement, provider/source, credential state, privacy mode, test action, last-tested timestamp, and readable connection state. A green state must mean an end-to-end structured insight test succeeded, not merely that a token or executable was found.
+- Persist a successful Codex Intelligence verification receipt with its timestamp and configuration identity. Restore `Connected` across launches only for the same provider/executable, invalidate it after a matching verification failure, and return to `Unknown` when connection-relevant configuration changes.
 - Put uncommon parser and buffer tuning behind Expert.
 - Prefer controls that match intent:
   - segmented controls or chips for small exclusive choices

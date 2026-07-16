@@ -7,6 +7,7 @@ final class ModexApplicationController: ObservableObject {
     let model: ModexMenuModel
 
     private let settingsStore: ModexSettingsStore
+    private let intelligenceConnectionStore: ModexIntelligenceConnectionStore
     private let monitor: ModexMonitor
     private let historyStore: ModexHistoryStore?
     private let signalEngine = ModexSignalEngine()
@@ -26,12 +27,17 @@ final class ModexApplicationController: ObservableObject {
         ModexStartupMigrationCatalog.run()
         let settingsStore = ModexSettingsStore()
         let settings = settingsStore.load()
+        let intelligenceConnectionStore = ModexIntelligenceConnectionStore()
         let historyStore = try? ModexHistoryStore(databaseURL: ModexHistoryStore.defaultDatabaseURL())
         self.settingsStore = settingsStore
+        self.intelligenceConnectionStore = intelligenceConnectionStore
         self.settings = settings
         monitor = ModexMonitor(configuration: settings.monitorConfiguration)
         self.historyStore = historyStore
-        model = ModexMenuModel(settings: settings)
+        model = ModexMenuModel(
+            settings: settings,
+            intelligenceConnectionState: intelligenceConnectionStore.state(for: settings.intelligence)
+        )
         if let results = try? historyStore?.agentInsightResults() {
             model.agentInsightResults = Dictionary(
                 uniqueKeysWithValues: results.map { ($0.sourceInsightID, $0) }
@@ -93,7 +99,9 @@ final class ModexApplicationController: ObservableObject {
         } else if oldSettings.intelligence != settings.intelligence {
             intelligenceTestTask?.cancel()
             intelligenceTestTask = nil
-            model.intelligenceConnectionState = .unknown
+            model.intelligenceConnectionState = intelligenceConnectionStore.state(
+                for: settings.intelligence
+            )
         }
 
         if oldSettings.refreshIntervalSeconds != settings.refreshIntervalSeconds {
@@ -144,8 +152,11 @@ final class ModexApplicationController: ObservableObject {
             guard Task.isCancelled == false else {
                 return
             }
-            self?.intelligenceTestTask = nil
-            self?.model.intelligenceConnectionState = result
+            guard let self, self.settings.intelligence == intelligence else {
+                return
+            }
+            intelligenceTestTask = nil
+            updateIntelligenceConnection(result, for: intelligence)
         }
     }
 
@@ -154,7 +165,9 @@ final class ModexApplicationController: ObservableObject {
               settings.intelligence.provider != .off,
               let summary = latestSummary
         else {
-            model.intelligenceConnectionState = settings.intelligence.enabled ? .unknown : .off
+            model.intelligenceConnectionState = intelligenceConnectionStore.state(
+                for: settings.intelligence
+            )
             return
         }
 
@@ -194,7 +207,13 @@ final class ModexApplicationController: ObservableObject {
                     self.agentInsightTasks[baseInsight.id] = nil
                     self.model.agentInsightErrors[baseInsight.id] = nil
                     self.model.agentInsightResults[baseInsight.id] = result
-                    self.model.intelligenceConnectionState = .connected(result.generatedAt)
+                    if self.settings.intelligence == settings {
+                        self.intelligenceConnectionStore.recordConnected(
+                            at: result.generatedAt,
+                            for: settings
+                        )
+                        self.model.intelligenceConnectionState = .connected(result.generatedAt)
+                    }
 
                     if retryIfChanged,
                        let currentInsight = self.model.insights.first(where: { $0.id == baseInsight.id }),
@@ -220,7 +239,10 @@ final class ModexApplicationController: ObservableObject {
                     self?.model.runningAgentInsightIDs.remove(baseInsight.id)
                     let message = Self.intelligenceErrorMessage(error)
                     self?.model.agentInsightErrors[baseInsight.id] = message
-                    self?.model.intelligenceConnectionState = .failed(message)
+                    if let self, self.settings.intelligence == settings {
+                        self.intelligenceConnectionStore.invalidate(for: settings)
+                        self.model.intelligenceConnectionState = .failed(message)
+                    }
                 }
             }
         }
@@ -334,6 +356,21 @@ final class ModexApplicationController: ObservableObject {
         } else {
             refreshRequestedAfterCurrent = true
         }
+    }
+
+    private func updateIntelligenceConnection(
+        _ state: ModexIntelligenceConnectionState,
+        for settings: ModexIntelligenceSettings
+    ) {
+        switch state {
+        case .connected(let date):
+            intelligenceConnectionStore.recordConnected(at: date, for: settings)
+        case .limited, .failed:
+            intelligenceConnectionStore.invalidate(for: settings)
+        case .off, .unknown, .testing:
+            break
+        }
+        model.intelligenceConnectionState = state
     }
 
     private static func nanoseconds(for interval: TimeInterval) -> UInt64 {

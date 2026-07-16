@@ -15,10 +15,14 @@ final class ModexMenuModel: ObservableObject {
     @Published var isRefreshing = false
     @Published var readFailureMessage: String?
 
-    init(settings: ModexAppSettings) {
+    init(
+        settings: ModexAppSettings,
+        intelligenceConnectionState: ModexIntelligenceConnectionState? = nil
+    ) {
         let settings = settings.normalized()
         self.settings = settings
-        intelligenceConnectionState = settings.intelligence.enabled ? .unknown : .off
+        self.intelligenceConnectionState = intelligenceConnectionState
+            ?? (settings.intelligence.enabled ? .unknown : .off)
     }
 
     var latestMetrics: ScanMetrics? {
