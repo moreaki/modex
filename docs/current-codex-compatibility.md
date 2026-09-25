@@ -6,7 +6,7 @@ The account summary and secondary detail surface now expose the reported plan ti
 
 Protocol reference: [Codex App Server rate limits](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt).
 
-Build, all 52 tests, CLI reporting, release packaging, localization lint, cross-locale placeholder/key checks, and whitespace checks pass. The live CLI returned the plan, zero credit balance, and all three reset expiration dates shown in the reference usage screen. The final packaged account-detail screenshot check is pending manual opening of the menu-bar popup.
+Build, all 52 tests, CLI reporting, release packaging, localization lint, cross-locale placeholder/key checks, and whitespace checks pass. The live CLI returned the plan, zero credit balance, and all three reset expiration dates shown in the reference usage screen. Actual packaged dashboard/account-popover screenshots were inspected in System light and Black, including all three expirations and the scrollable footer; the Tokens detail window was inspected in System light and dark. No overlap or unreadable contrast was observed in those states. The original Modex System theme and macOS Light appearance were restored after verification.
 
 ## Original compatibility scope
 
@@ -32,7 +32,7 @@ The test suite includes old-schema history reopening, scanner priority/concurren
 
 The live installed CLI smoke check decoded account availability, 166 reported daily buckets, and 112 paginated thread summaries without a reconnect. A 3 MB valid-response regression test covers pipe backpressure independently of the oversized-message rejection test. CLI reports preserve authoritative `account.ordinaryUsageAllowed` and read-only reset-credit/spend metadata using protocol field labels.
 
-Verification on 2026-09-25: `swift build`, all 51 tests, `swift run modex --once`, release packaging, `git diff --check`, all five localization lints, and cross-locale key/placeholder checks passed. Actual packaged dashboard and Tokens detail screenshots were inspected in System light appearance. Final account-popover, System dark, and Black-theme screenshot checks remain pending: the UI tool requires the menu-bar popup to be opened manually, and the last transport fix required a relaunch. No unverified theme coverage is claimed.
+Initial 0.1.6 verification on 2026-09-25: `swift build`, all 51 tests, `swift run modex --once`, release packaging, `git diff --check`, all five localization lints, and cross-locale key/placeholder checks passed. Initial screenshot coverage was System light; the additional account and theme checks completed with 0.1.7 are recorded above.
 
 Release-mode scanner comparison on this Mac, four concurrent parsers, identical generated 24-file / 117,210,446-byte corpus (72,000 token samples plus tool calls/outputs and matching usage records):
 
