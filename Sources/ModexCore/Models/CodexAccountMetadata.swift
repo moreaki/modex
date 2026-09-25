@@ -137,4 +137,18 @@ public struct CodexAccountUsage: Decodable, Equatable, Sendable {
     public var recentDays: [Day] {
         Array((dailyUsageBuckets ?? []).filter { $0.tokens >= 0 }.sorted { $0.startDate < $1.startDate }.suffix(14))
     }
+    /// The UI shows reported entries, not a continuous calendar week.
+    public var displayedDays: [Day] { Array(recentDays.suffix(7)) }
+
+    public var displayedDaysTotal: Int? {
+        let days = displayedDays
+        guard !days.isEmpty else { return nil }
+        var total = 0
+        for day in days {
+            let sum = total.addingReportingOverflow(day.tokens)
+            guard !sum.overflow else { return nil }
+            total = sum.partialValue
+        }
+        return total
+    }
 }

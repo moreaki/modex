@@ -1,4 +1,12 @@
-# Current Codex compatibility — 0.1.8
+# Current Codex compatibility — 0.1.9
+
+## Account analytics readability — 0.1.9 (build 14)
+
+The Tokens view now separates lifetime tokens, the displayed-days subtotal, and peak daily tokens into three aligned metrics with explicit localized million/billion units. Exact summary counts are available on hover and to accessibility. The daily strip names its entry count and date range; it contains the seven latest reported entries, not an inferred calendar week. Missing dates are not filled with zeros. The secondary statistics align with the summary columns, and longest-turn duration uses localized hours/minutes/seconds.
+
+The reference screenshot's seven entries total **183,644,186**, below the reported lifetime **25,253,809,535**. A regression test covers that exact case, sparse dates, selection/order, missing versus zero totals, and overflow. No request, timer, scanner behavior, dependency, or persisted format changed. All 62 tests, build, one-shot reporting, optimized packaging, localization lint/key/placeholder checks, and whitespace checks pass.
+
+Packaged visual verification is pending opening the updated Tokens window.
 
 ## Acceptance completion — 0.1.8 (build 13)
 

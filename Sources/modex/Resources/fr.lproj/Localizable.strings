@@ -547,3 +547,10 @@
 "transport.ready" = "Prêt";
 "transport.limited" = "Fonctionnalités limitées";
 "transport.failed" = "Échec de connexion";
+"account.millionTokens" = "%@ millions";
+"account.billionTokens" = "%@ milliards";
+"account.displayedTotal" = "Jours affichés · tokens";
+"account.reportedDays" = "Jours déclarés · %d entrées";
+"account.dateRange" = "%@ – %@";
+"account.dailyCoverage" = "Dernières entrées déclarées, pas une semaine calendaire. Les dates absentes ne valent pas zéro.";
+"account.longestTurn" = "Tour le plus long";

@@ -163,55 +163,93 @@ struct CodexAccountUsageView: View {
     let metadata: CodexMetadataSnapshot
     @Environment(\.modexPalette) private var palette
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text(ModexStrings.text("account.usageTitle")).font(.system(size: 12, weight: .semibold))
                 Spacer()
                 if let date = metadata.usageObservedAt {
-                    Text(ModexStrings.format("account.observed", date.formatted(date: .abbreviated, time: .shortened)))
+                    Text(ModexStrings.format("account.observed", ModexAccountPresentation.date(date)))
                         .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
                 }
             }
-            HStack(spacing: 24) {
-                metric("account.lifetime", metadata.usage?.summary?.lifetimeTokens)
-                metric("account.peakDaily", metadata.usage?.summary?.peakDailyTokens)
+            HStack(alignment: .top, spacing: 24) {
+                tokenMetric("account.lifetime", metadata.usage?.summary?.lifetimeTokens)
+                tokenMetric("account.displayedTotal", metadata.usage?.displayedDaysTotal)
+                tokenMetric("account.peakDaily", metadata.usage?.summary?.peakDailyTokens)
             }
-            DisclosureGroup(ModexStrings.text("account.moreStatistics")) {
-                VStack(alignment: .leading, spacing: 8) {
-                    metric("account.longestTurnSeconds", metadata.usage?.summary?.longestRunningTurnSec)
-                    metric("account.currentStreakDays", metadata.usage?.summary?.currentStreakDays)
-                    metric("account.longestStreakDays", metadata.usage?.summary?.longestStreakDays)
-                }.padding(.vertical, 6)
-            }.font(.system(size: 11))
             if metadata.usageRefreshFailed {
                 Text(ModexStrings.text("account.usageStale"))
                     .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
             }
-            // A dated, exact table is more useful here than an unlabeled micro-chart.
-            if let days = metadata.usage?.recentDays, !days.isEmpty {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(Array(days.suffix(7).enumerated()), id: \.offset) { _, day in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(day.startDate).foregroundStyle(palette.secondaryText)
-                            Text(day.tokens.formatted()).monospacedDigit()
-                        }
-                        .font(.system(size: 10))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            if let days = metadata.usage?.displayedDays, let first = days.first, let last = days.last {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text(ModexStrings.format("account.reportedDays", days.count)).fontWeight(.medium)
+                        Spacer()
+                        Text(ModexStrings.format("account.dateRange", first.startDate, last.startDate))
                     }
+                    .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(Array(days.enumerated()), id: \.offset) { _, day in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(day.startDate).foregroundStyle(palette.secondaryText)
+                                    .font(.system(size: 10))
+                                Text(exact(day.tokens)).monospacedDigit()
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    Text(ModexStrings.text("account.dailyCoverage"))
+                        .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
                 }
+                .padding(.vertical, 12)
+                .overlay(alignment: .top) { Divider() }
+                .overlay(alignment: .bottom) { Divider() }
             }
+            DisclosureGroup(ModexStrings.text("account.moreStatistics")) {
+                HStack(alignment: .top, spacing: 24) {
+                    statistic("account.longestTurn", ModexAccountPresentation.turnDuration(metadata.usage?.summary?.longestRunningTurnSec))
+                    statistic("account.currentStreakDays", exact(metadata.usage?.summary?.currentStreakDays))
+                    statistic("account.longestStreakDays", exact(metadata.usage?.summary?.longestStreakDays))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+            }.font(.system(size: 11))
             Text(ModexStrings.text("account.usageSource"))
                 .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
         }
         .foregroundStyle(palette.text)
         .padding(.horizontal, 22)
-        .padding(.vertical, 14)
+        .padding(.vertical, 18)
     }
-    private func metric(_ key: String, _ value: Int?) -> some View {
-        HStack(spacing: 8) {
-            Text(ModexStrings.text(key)).foregroundStyle(palette.secondaryText)
-            Text(value?.formatted() ?? ModexStrings.text("overview.contextUnavailable")).monospacedDigit()
-        }.font(.system(size: 12))
+
+    private func exact(_ value: Int?) -> String {
+        value.map { $0.formatted(.number.locale(ModexStrings.localizationLocale)) }
+            ?? ModexStrings.text("overview.contextUnavailable")
+    }
+
+    private func tokenMetric(_ key: String, _ value: Int?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(ModexStrings.text(key)).font(.system(size: 11)).foregroundStyle(palette.secondaryText)
+            Text(ModexAccountPresentation.tokenMagnitude(value))
+                .font(.system(size: 23, weight: .semibold)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.7)
+                .help(exact(value))
+                .accessibilityLabel(Text(exact(value)))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func statistic(_ key: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(ModexStrings.text(key)).font(.system(size: 10)).foregroundStyle(palette.secondaryText)
+            Text(value).font(.system(size: 13, weight: .medium)).monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -241,4 +279,11 @@ func codexMetadataDetails(for session: SessionSnapshot) -> [String] {
 
 #Preview("Account usage unavailable") {
     CodexAccountUsageView(metadata: CodexMetadataSnapshot())
+}
+
+#Preview("Account usage with gaps") {
+    let fixture = #"{"summary":{"lifetimeTokens":25253809535,"peakDailyTokens":1631515240,"longestRunningTurnSec":17385,"currentStreakDays":3,"longestStreakDays":19},"dailyUsageBuckets":[{"startDate":"2026-09-21","tokens":2658340},{"startDate":"2026-09-23","tokens":2084105},{"startDate":"2026-09-24","tokens":22059557},{"startDate":"2026-09-25","tokens":129767909}]}"#
+    var metadata = CodexMetadataSnapshot()
+    metadata.usage = try? JSONDecoder().decode(CodexAccountUsage.self, from: Data(fixture.utf8))
+    return CodexAccountUsageView(metadata: metadata).frame(width: 960)
 }

@@ -2,6 +2,26 @@ import Foundation
 import ModexCore
 
 enum ModexAccountPresentation {
+    static func tokenMagnitude(_ value: Int?, locale: Locale = ModexStrings.localizationLocale) -> String {
+        guard let value, value >= 0 else { return ModexStrings.text("overview.contextUnavailable") }
+        let scale: (Double, String)? = value >= 1_000_000_000 ? (1_000_000_000, "account.billionTokens")
+            : value >= 1_000_000 ? (1_000_000, "account.millionTokens") : nil
+        guard let (divisor, key) = scale else { return value.formatted(.number.locale(locale)) }
+        let number = (Double(value) / divisor).formatted(.number.precision(.fractionLength(0...2)).locale(locale))
+        return ModexStrings.format(key, number)
+    }
+
+    static func turnDuration(_ seconds: Int?) -> String {
+        guard let seconds, seconds >= 0 else { return ModexStrings.text("overview.contextUnavailable") }
+        let formatter = DateComponentsFormatter()
+        var calendar = Calendar.current
+        calendar.locale = ModexStrings.localizationLocale
+        formatter.calendar = calendar
+        formatter.allowedUnits = [.hour, .minute, .second]
+        formatter.unitsStyle = .abbreviated
+        return formatter.string(from: Double(seconds)) ?? ModexStrings.text("overview.contextUnavailable")
+    }
+
     static func plan(_ value: String?) -> String {
         guard let value else { return ModexStrings.text("overview.contextUnavailable") }
         switch value {

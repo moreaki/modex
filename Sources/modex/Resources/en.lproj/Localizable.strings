@@ -547,3 +547,10 @@
 "transport.ready" = "Ready";
 "transport.limited" = "Limited capabilities";
 "transport.failed" = "Connection failed";
+"account.millionTokens" = "%@ million";
+"account.billionTokens" = "%@ billion";
+"account.displayedTotal" = "Displayed days · tokens";
+"account.reportedDays" = "Reported days · %d entries";
+"account.dateRange" = "%@ – %@";
+"account.dailyCoverage" = "Latest reported entries, not a calendar week. Missing dates are not treated as zero.";
+"account.longestTurn" = "Longest turn";
