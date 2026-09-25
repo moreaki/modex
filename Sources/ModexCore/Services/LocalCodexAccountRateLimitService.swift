@@ -31,7 +31,7 @@ public struct LocalCodexAccountRateLimitService: Sendable {
     }
     public func fetchAccountLimits() async throws -> CodexAccountLimits {
         try await client.request(
-            "account/rateLimits/read", parameters: Data("{\"skipResetCreditDetails\":true}".utf8),
+            "account/rateLimits/read",
             executablePath: executablePath, timeoutSeconds: timeoutSeconds
         )
     }

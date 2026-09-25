@@ -36,7 +36,7 @@ enum ModexStrings {
         return bundle(for: "en") ?? .module
     }
 
-    private static var localizationLocale: Locale {
+    static var localizationLocale: Locale {
         if let languageCode = preferredLanguageCode {
             return Locale(identifier: languageCode)
         }

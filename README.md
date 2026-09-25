@@ -12,7 +12,7 @@ It reads local Codex data from `~/.codex`, uses Codex's read-only state index to
 - Separate seven-thread recent-activity views for Codex Project threads and standalone Task threads, while the complete eligible thread set progressively fills the detached detail window.
 - Per-thread context usage, model, reasoning effort, service tier, source, Codex version, speed, total tokens, median/average turn tokens, compaction count, and last update age when available.
 - Current activity metrics for command outcomes, patches, MCP calls, web searches, sub-agent activity, aborted turns, and changed files.
-- Account availability, named limit pools, spend controls, and read-only reset-credit counts, with unknown and stale states kept explicit.
+- Account plan, availability, named limit pools, spend controls, credit balance, and read-only reset credits with individual expirations. Click the account summary for quota reset countdowns and full details; unknown and stale states remain explicit.
 - Service-reported lifetime/peak tokens and dated daily totals in the Tokens detail tab, separate from locally scanned thread totals. Redundant dashboard history cards and tiny table sparklines have been removed.
 - A detached detail-window Insights tab with deterministic, evidence-backed signals such as high context, failed commands, slow turns, repeated compactions, high cache reuse, slow scans, and cold cache behavior.
 - Calm hover details for full session/project/file information and exact token values.
@@ -23,6 +23,8 @@ Codex JSONL schemas are local implementation details, so Modex treats missing or
 ## Current Codex compatibility
 
 Modex shares one event-driven `app-server --stdio` connection between model discovery and account/thread metadata. There are no 25-ms polling loops or temporary output files. Read requests are bounded and cancellable, reconnects back off, and failures never block local scanning or menu presentation. Limits/thread metadata refresh at most once a minute; account analytics at most once every 15 minutes. Snapshots live only in memory, retain their observation times on failure, and are discarded on account/executable changes. No reset credits are redeemed and no daemon is installed or started.
+
+The account read includes reset-credit detail rows in that same request. The reported available count stays authoritative when the backend caps or omits detail rows. Subscription prices, billing providers, and reset redemption history are not supplied by the Codex CLI and are not inferred. Purchases and reset redemption remain outside Modex.
 
 Live thread status describes only threads known to the connected server. A private stdio server normally reports desktop threads as `notLoaded`; Modex does **not** turn that into an idle claim. Canonical names, project IDs, pinning, originator, and history mode are read from the compatible local index, with safe metadata enrichment and existing fallbacks. Observed JSONL model/effort settings are not overwritten by server defaults.
 

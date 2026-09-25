@@ -9,6 +9,33 @@ public struct CodexAccountLimits: Decodable, Equatable, Sendable {
 
     public struct ResetCredits: Decodable, Equatable, Sendable {
         public let availableCount: Int?
+        public let credits: [ResetCredit]?
+        public var availableDetails: [ResetCredit]? {
+            credits?.filter { $0.status == "available" }.sorted {
+                ($0.expiresAt ?? .max, $0.id) < ($1.expiresAt ?? .max, $1.id)
+            }
+        }
+
+        fileprivate func merging(_ update: Self) -> Self {
+            // A count-only notification must not erase details, unless the count
+            // changed and those rows can no longer be considered current.
+            Self(availableCount: update.availableCount ?? availableCount,
+                 credits: update.credits ?? ((update.availableCount == nil || update.availableCount == availableCount) ? credits : nil))
+        }
+    }
+    public struct ResetCredit: Decodable, Equatable, Sendable, Identifiable {
+        public let id: String
+        public let resetType: String
+        public let status: String
+        public let grantedAt: Int?
+        public let expiresAt: Int?
+        public let title: String?
+        public let description: String?
+    }
+    public var generalBucket: Bucket? {
+        if let bucket = rateLimitsByLimitId?["codex"] { return bucket }
+        guard let bucket = rateLimits, bucket.value.isGeneralAccountLimit else { return nil }
+        return bucket
     }
     public struct Credits: Decodable, Equatable, Sendable {
         public let balance: String?
@@ -59,9 +86,7 @@ public struct CodexAccountLimits: Decodable, Equatable, Sendable {
         }
     }
     public var generalLimits: CodexRateLimits? {
-        if let bucket = rateLimitsByLimitId?["codex"] { return bucket.value }
-        guard let value = rateLimits?.value, value.isGeneralAccountLimit else { return nil }
-        return value
+        generalBucket?.value
     }
     /// Notifications are patches, not full reads. Explicit false is authoritative;
     /// absent/null values never imply recovery or erase known metadata.
@@ -70,7 +95,9 @@ public struct CodexAccountLimits: Decodable, Equatable, Sendable {
         var result = self
         result.accountId = update.accountId ?? accountId
         result.ordinaryUsageAllowed = update.ordinaryUsageAllowed ?? ordinaryUsageAllowed
-        result.rateLimitResetCredits = update.rateLimitResetCredits ?? rateLimitResetCredits
+        if let updateCredits = update.rateLimitResetCredits {
+            result.rateLimitResetCredits = rateLimitResetCredits?.merging(updateCredits) ?? updateCredits
+        }
         if let bucket = update.rateLimits { result.rateLimits = rateLimits?.merging(bucket) ?? bucket }
         for (key, bucket) in update.rateLimitsByLimitId ?? [:] {
             if result.rateLimitsByLimitId == nil { result.rateLimitsByLimitId = [:] }

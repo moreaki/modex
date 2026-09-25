@@ -101,8 +101,7 @@ public actor LocalCodexMetadataService {
             }
         }
         do {
-            let limits: CodexAccountLimits = try await client.request("account/rateLimits/read",
-                parameters: Data("{\"skipResetCreditDetails\":true}".utf8), executablePath: executablePath)
+            let limits: CodexAccountLimits = try await client.request("account/rateLimits/read", executablePath: executablePath)
             guard revision == requestRevision else { return }
             if let old = snapshot.limits?.accountId, let new = limits.accountId, old != new {
                 snapshot = CodexMetadataSnapshot()

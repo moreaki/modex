@@ -120,6 +120,34 @@ import Testing
     #expect(usage.recentDays.count == 2)
 }
 
+@Test func resetCreditDetailsPreserveUnknownsAndMergeCountOnlyUpdates() throws {
+    let decoder = JSONDecoder()
+    let account = try decoder.decode(CodexAccountLimits.self, from: Data(#"""
+    {"accountId":"fixture","rateLimitsByLimitId":{"codex":{"planType":"pro","credits":{"balance":"0","hasCredits":false,"unlimited":false}}},"rateLimitResetCredits":{"availableCount":3,"credits":[
+      {"id":"later","resetType":"codexRateLimits","status":"available","expiresAt":1790000000},
+      {"id":"first","resetType":"codexRateLimits","status":"available","expiresAt":1789000000},
+      {"id":"future","resetType":"futureReset","status":"futureStatus","expiresAt":null}
+    ]}}
+    """#.utf8))
+    #expect(account.generalBucket?.planType == "pro")
+    #expect(account.generalBucket?.credits?.balance == "0")
+    #expect(account.rateLimitResetCredits?.availableDetails?.map(\.id) == ["first", "later"])
+    #expect(account.rateLimitResetCredits?.availableCount == 3) // not derived from the capped rows
+    let report = ModexSummaryReportFormatter().report(for: ModexSummary(sessions: [], accountMetadata: account))
+    #expect(report.contains("account.planType: pro"))
+    #expect(report.contains("account.credits.balance: 0"))
+    #expect(report.contains("account.rateLimitResetCredits[0].expiresAt:"))
+    let same = try decoder.decode(CodexAccountLimits.self, from: Data(#"{"rateLimitResetCredits":{"availableCount":3,"credits":null}}"#.utf8))
+    #expect(account.merging(same).rateLimitResetCredits?.credits?.count == 3)
+    let changed = try decoder.decode(CodexAccountLimits.self, from: Data(#"{"rateLimitResetCredits":{"availableCount":2}}"#.utf8))
+    #expect(account.merging(changed).rateLimitResetCredits?.credits == nil)
+    let empty = try decoder.decode(CodexAccountLimits.self, from: Data(#"{"rateLimitResetCredits":{"availableCount":3,"credits":[]}}"#.utf8))
+    #expect(account.merging(empty).rateLimitResetCredits?.credits == [])
+    let unknown = try decoder.decode(CodexAccountLimits.self, from: Data(#"{"rateLimits":{"credits":{"hasCredits":false}},"rateLimitResetCredits":null}"#.utf8))
+    #expect(unknown.rateLimits?.credits?.balance == nil) // no invented zero balance
+    #expect(unknown.rateLimitResetCredits == nil)
+}
+
 @Test func modelUpgradeMetadataIsOptionalAndForwardCompatible() throws {
     let model = try JSONDecoder().decode(LocalCodexModelCapability.self, from: Data(#"{"id":"old","upgrade":"new","upgradeInfo":{"model":"new","retirementAt":1790000000},"inputModalities":["text","future"],"multiAgentVersion":"v99","modelSpecialty":"future"}"#.utf8))
     #expect(model.upgradeTarget == "new")

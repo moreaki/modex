@@ -253,9 +253,16 @@ public struct ModexSummaryReportFormatter: Sendable {
 
         if let account = summary.accountMetadata {
             // Protocol field labels keep CLI output stable and unambiguous.
+            if let plan = account.generalBucket?.planType { lines.append("account.planType: \(plan)") }
+            if let balance = account.generalBucket?.credits?.balance { lines.append("account.credits.balance: \(balance)") }
             lines.append("account.ordinaryUsageAllowed: \(account.ordinaryUsageAllowed.map(String.init) ?? "null")")
             if let credits = account.rateLimitResetCredits?.availableCount {
                 lines.append("account.rateLimitResetCredits.availableCount: \(credits)")
+            }
+            for (index, credit) in (account.rateLimitResetCredits?.availableDetails ?? []).enumerated() {
+                let expiry = credit.expiresAt.map { resetFormatter.string(from: Date(timeIntervalSince1970: Double($0))) } ?? "null"
+                lines.append("account.rateLimitResetCredits[\(index)].resetType: \(credit.resetType)")
+                lines.append("account.rateLimitResetCredits[\(index)].expiresAt: \(expiry)")
             }
             for (id, bucket) in (account.rateLimitsByLimitId ?? [:]).sorted(by: { $0.key < $1.key }) {
                 if let reached = bucket.spendControlReached {

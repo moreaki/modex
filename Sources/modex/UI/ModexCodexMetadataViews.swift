@@ -9,31 +9,43 @@ struct CodexAccountMetadataView: View {
     var body: some View {
         Button { showingDetails.toggle() } label: {
             HStack {
-                Label(ModexStrings.text("account.title"), systemImage: "person.crop.circle")
+                Label(metadata.limits?.generalBucket?.planType == nil ? ModexStrings.text("account.title") : plan,
+                      systemImage: "person.crop.circle")
                 Text(availability)
                 Spacer()
+                if let balance = metadata.limits?.generalBucket?.credits?.balance {
+                    Text(ModexStrings.format("account.credits", balance))
+                }
                 if let count = metadata.limits?.rateLimitResetCredits?.availableCount {
                     Text(ModexStrings.format("account.resetCredits", count))
                 }
                 Image(systemName: "info.circle")
             }
             .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
             .foregroundStyle(palette.secondaryText)
             .padding(.vertical, 8)
         }
         .buttonStyle(.plain)
         .popover(isPresented: $showingDetails) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     Text(ModexStrings.text("account.title")).font(.headline)
-                    Text(availability)
-                    if let date = metadata.limitsObservedAt {
-                        Text(ModexStrings.format("account.observed", date.formatted(date: .abbreviated, time: .shortened)))
-                            .foregroundStyle(palette.secondaryText)
+                    HStack {
+                        Text(ModexStrings.text("account.plan")).foregroundStyle(palette.secondaryText)
+                        Spacer()
+                        Text(plan).fontWeight(.semibold)
                     }
+                    Text(availability).foregroundStyle(palette.secondaryText)
+                    if let date = metadata.limitsObservedAt {
+                        Text(ModexStrings.format("account.observed", ModexAccountPresentation.date(date)))
+                            .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
+                    }
+                    Divider()
                     ForEach(buckets, id: \.0) { key, bucket in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(bucket.limitName ?? key).font(.subheadline.bold())
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(key == "codex" ? ModexStrings.text("account.planLimits") : bucket.limitName ?? key)
+                                .font(.subheadline.bold())
                             if let primary = bucket.primary { window(primary) }
                             if let secondary = bucket.secondary { window(secondary) }
                             if let reached = bucket.spendControlReached {
@@ -43,7 +55,7 @@ struct CodexAccountMetadataView: View {
                                let used = spend.used, let limit = spend.limit {
                                 Text(ModexStrings.format("account.spend", used, limit))
                             }
-                            if let credits = bucket.credits {
+                            if key != "codex", let credits = bucket.credits {
                                 if credits.unlimited == true {
                                     Text(ModexStrings.text("account.unlimitedCredits"))
                                 } else if let balance = credits.balance {
@@ -52,14 +64,63 @@ struct CodexAccountMetadataView: View {
                             }
                         }
                     }
-                    Text(ModexStrings.text("account.readOnly")).foregroundStyle(palette.secondaryText)
+                    Divider()
+                    HStack {
+                        Text(ModexStrings.text("account.creditBalance")).fontWeight(.semibold)
+                        Spacer()
+                        if metadata.limits?.generalBucket?.credits?.unlimited == true {
+                            Text(ModexStrings.text("account.unlimitedCredits"))
+                        } else {
+                            Text(metadata.limits?.generalBucket?.credits?.balance ?? ModexStrings.text("overview.contextUnavailable"))
+                                .monospacedDigit()
+                        }
+                    }
+                    Divider()
+                    resetCredits
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(ModexStrings.text("account.readOnly"))
+                        Text(ModexStrings.text("account.billingUnavailable"))
+                    }
+                    .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
                 }
                 .font(.system(size: 12))
                 .padding(20)
             }
-            .frame(width: 390, height: 400)
+            .frame(width: 420, height: 520)
             .background(palette.background)
             .foregroundStyle(palette.text)
+        }
+    }
+
+    private var plan: String { ModexAccountPresentation.plan(metadata.limits?.generalBucket?.planType) }
+
+    private var resetCredits: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(ModexStrings.text("account.usageResets")).fontWeight(.semibold)
+                Spacer()
+                Text(metadata.limits?.rateLimitResetCredits?.availableCount.map {
+                    ModexStrings.format("account.availableResets", $0)
+                } ?? ModexStrings.text("overview.contextUnavailable"))
+            }
+            if let credits = metadata.limits?.rateLimitResetCredits?.availableDetails {
+                ForEach(credits) { credit in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(ModexAccountPresentation.resetTitle(credit))
+                        Text(credit.expiresAt.map {
+                            ModexStrings.format("account.expires", ModexAccountPresentation.date(Date(timeIntervalSince1970: Double($0))))
+                        } ?? ModexStrings.text("account.noExpiry"))
+                        .font(.system(size: 11)).foregroundStyle(palette.secondaryText)
+                    }
+                }
+                if credits.count < (metadata.limits?.rateLimitResetCredits?.availableCount ?? 0) {
+                    Text(ModexStrings.text("account.partialResets"))
+                        .font(.system(size: 11)).foregroundStyle(palette.secondaryText)
+                }
+            } else if metadata.limits?.rateLimitResetCredits?.availableCount != 0 {
+                Text(ModexStrings.text("account.resetDetailsUnavailable"))
+                    .font(.system(size: 11)).foregroundStyle(palette.secondaryText)
+            }
         }
     }
 
@@ -73,18 +134,25 @@ struct CodexAccountMetadataView: View {
     }
     private var buckets: [(String, CodexAccountLimits.Bucket)] {
         if let buckets = metadata.limits?.rateLimitsByLimitId, !buckets.isEmpty {
-            return buckets.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+            return buckets.sorted { ($0.key == "codex" ? 0 : 1, $0.key) < ($1.key == "codex" ? 0 : 1, $1.key) }.map { ($0.key, $0.value) }
         }
         guard let bucket = metadata.limits?.rateLimits else { return [] }
         return [(bucket.limitId ?? "Codex", bucket)]
     }
     private func window(_ window: CodexAccountLimits.Window) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(ModexStrings.format("account.window", window.windowDurationMins.map(String.init) ?? "—",
-                                     String(format: "%.1f", window.value.leftPercent)))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(ModexAccountPresentation.windowTitle(window.windowDurationMins))
+                Spacer()
+                Text(ModexStrings.format("account.remaining", ModexStrings.decimal(window.value.leftPercent, maximumFractionDigits: 1)))
+                    .monospacedDigit()
+            }
+            ProgressView(value: window.value.leftPercent, total: 100).tint(palette.accent)
+                .accessibilityLabel(Text(ModexAccountPresentation.windowTitle(window.windowDurationMins)))
             if let date = window.value.resetsAt {
-                Text(ModexStrings.format("account.resets", date.formatted(date: .abbreviated, time: .shortened)))
-                    .foregroundStyle(palette.secondaryText)
+                Text(ModexAccountPresentation.resetTime(date))
+                    .font(.system(size: 11)).foregroundStyle(palette.secondaryText)
+                    .help(ModexAccountPresentation.date(date))
             }
         }
     }

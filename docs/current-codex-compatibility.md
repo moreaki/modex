@@ -1,4 +1,14 @@
-# Current Codex compatibility — 0.1.6
+# Current Codex compatibility — 0.1.7
+
+## Account overview follow-up — 0.1.7
+
+The account summary and secondary detail surface now expose the reported plan tier, credit balance, quota countdowns, and each returned available reset's expiration. The existing one-minute account read requests full reset details rather than count-only data; no additional request, timer, process, persistence format, or purchase/redemption action is added. Count-only notifications retain known rows while the count is unchanged, and invalidate them when it changes. Null, empty, and capped detail lists remain distinct. Unknown reset statuses are not presented as available. Price, billing provider, and reset history are unavailable through this endpoint and are explicitly identified as such.
+
+Protocol reference: [Codex App Server rate limits](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt).
+
+Build, all 52 tests, CLI reporting, release packaging, localization lint, cross-locale placeholder/key checks, and whitespace checks pass. The live CLI returned the plan, zero credit balance, and all three reset expiration dates shown in the reference usage screen. The final packaged account-detail screenshot check is pending manual opening of the menu-bar popup.
+
+## Original compatibility scope
 
 Implements the core scope of issues #3–#8. Uses the installed CLI's generated App Server schema rather than a hard-coded model catalog. No new dependency, AppKit bridge, persistence schema, background daemon, or token-consuming reset action is introduced.
 
