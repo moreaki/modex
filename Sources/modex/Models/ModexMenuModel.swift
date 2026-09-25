@@ -5,6 +5,7 @@ import ModexCore
 @MainActor
 final class ModexMenuModel: ObservableObject {
     @Published var summary: ModexSummary?
+    @Published var codexMetadata = CodexMetadataSnapshot()
     @Published var history: ModexHistorySnapshot?
     @Published var insights: [ModexInsight] = []
     @Published var agentInsightResults: [String: ModexAgentInsightResult] = [:]

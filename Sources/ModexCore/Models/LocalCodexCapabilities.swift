@@ -33,6 +33,21 @@ public struct LocalCodexModelCapability: Decodable, Equatable, Sendable {
     public let serviceTiers: [LocalCodexServiceTierCapability]
     public let defaultServiceTier: String?
     public let isDefault: Bool
+    public var upgrade: String? = nil
+    public var upgradeInfo: UpgradeInfo? = nil
+    public var inputModalities: [String] = []
+    public var modelSpecialty: String? = nil
+    public var multiAgentVersion: String? = nil
+
+    public struct UpgradeInfo: Decodable, Equatable, Sendable {
+        public let model: String
+        public let retirementAt: Int?
+        public let migrationMarkdown: String?
+        public let modelLink: String?
+        public let upgradeCopy: String?
+    }
+
+    public var upgradeTarget: String? { upgradeInfo?.model ?? upgrade }
 
     public init(
         id: String,
@@ -70,6 +85,7 @@ public struct LocalCodexModelCapability: Decodable, Equatable, Sendable {
         case additionalSpeedTiers
         case defaultServiceTier
         case isDefault
+        case upgrade, upgradeInfo, inputModalities, modelSpecialty, multiAgentVersion
     }
 
     public init(from decoder: Decoder) throws {
@@ -114,6 +130,11 @@ public struct LocalCodexModelCapability: Decodable, Equatable, Sendable {
         }
         defaultServiceTier = try values.decodeIfPresent(String.self, forKey: .defaultServiceTier)
         isDefault = try values.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        upgrade = try? values.decodeIfPresent(String.self, forKey: .upgrade)
+        upgradeInfo = try? values.decodeIfPresent(UpgradeInfo.self, forKey: .upgradeInfo)
+        inputModalities = (try? values.decodeIfPresent([String].self, forKey: .inputModalities)) ?? []
+        modelSpecialty = try? values.decodeIfPresent(String.self, forKey: .modelSpecialty)
+        multiAgentVersion = try? values.decodeIfPresent(String.self, forKey: .multiAgentVersion)
     }
 }
 

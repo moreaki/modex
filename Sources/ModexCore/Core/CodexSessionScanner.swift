@@ -502,6 +502,10 @@ public final class CodexSessionScanner {
         snapshot.agentPath = metadata.agentPath ?? snapshot.agentPath
         snapshot.parentThreadID = metadata.parentThreadID ?? snapshot.parentThreadID
         snapshot.threadSource = metadata.threadSource ?? snapshot.threadSource
+        snapshot.projectID = metadata.projectID
+        snapshot.originator = metadata.originator
+        snapshot.historyMode = metadata.historyMode
+        snapshot.isPinned = metadata.isPinned
         snapshot.isArchived = metadata.archived
         snapshot.updatedAt = max(snapshot.updatedAt ?? .distantPast, metadata.recencyDate)
     }
@@ -1065,19 +1069,24 @@ private final class FastCodexJSONLParser {
         into snapshot: inout SessionSnapshot,
         state: inout FastParserState
     ) {
-        guard let topLevelType = FastJSONValue.string(after: FastJSONPattern.type, in: line) else {
+        guard let topLevelType = FastJSONValue.rootString("type", in: line) else {
             return
         }
 
         let isSessionMeta = topLevelType == "session_meta"
         let isOwnSessionMeta = isSessionMeta && state.hasParsedSessionMetadata == false
-        let payloadType = isSessionMeta ? nil : FastJSONValue.string(after: FastJSONPattern.payloadType, in: line)
+        let hasTypedPayload = topLevelType == "event_msg" || topLevelType == "response_item"
+        let payloadType = !hasTypedPayload ? nil : (FastJSONValue.string(after: FastJSONPattern.payloadType, in: line)
+            ?? FastJSONValue.object(after: Array("\"payload\":{".utf8), in: line).flatMap { FastJSONValue.rootString("type", in: $0) })
         let isTokenCount = topLevelType == "token_count" || payloadType == "token_count"
+        let isUsageRecord = topLevelType == "token_usage_record"
         let isTurnContext = topLevelType == "turn_context" || payloadType == "turn_context"
         let isThreadSettings = payloadType == "thread_settings_applied"
         let isTaskComplete = payloadType == "task_complete"
         let isCommandEnd = payloadType == "exec_command_end"
         let isToolCall = topLevelType == "response_item" && Self.isToolCallPayloadType(payloadType)
+        let completedItem = payloadType == "item_completed"
+            ? FastJSONValue.object(after: Array("\"item\":{".utf8), in: line) : nil
         let isToolOutput = topLevelType == "response_item" && Self.isToolOutputPayloadType(payloadType)
         let isPatchEnd = payloadType == "patch_apply_end"
         let isMCPToolCallEnd = payloadType == "mcp_tool_call_end"
@@ -1090,6 +1099,8 @@ private final class FastCodexJSONLParser {
 
         guard isOwnSessionMeta
             || isTokenCount
+            || isUsageRecord
+            || completedItem != nil
             || isTurnContext
             || isThreadSettings
             || isTaskComplete
@@ -1127,6 +1138,11 @@ private final class FastCodexJSONLParser {
                 ?? snapshot.modelProvider
             snapshot.source = nonEmpty(FastJSONValue.string(after: FastJSONPattern.source, in: line))
                 ?? snapshot.source
+            if snapshot.source == nil,
+               let source = FastJSONValue.object(after: Array("\"source\":{".utf8), in: line),
+               FastJSONValue.contains(Array("\"subagent\":".utf8), in: source) {
+                snapshot.source = "subagent"
+            }
             snapshot.agentNickname = nonEmpty(FastJSONValue.string(after: FastJSONPattern.agentNickname, in: line))
                 ?? snapshot.agentNickname
             snapshot.agentRole = nonEmpty(FastJSONValue.string(after: FastJSONPattern.agentRole, in: line))
@@ -1140,7 +1156,36 @@ private final class FastCodexJSONLParser {
         }
 
         if isTokenCount {
-            appendTokenEvent(line: line, timestamp: timestamp, snapshot: &snapshot)
+            // token_count is the authoritative context-bearing representation. If an
+            // older checkpoint used usage records, discard only those fallback samples.
+            let fallbackCount = !state.hasLegacyTokenUsage && state.hasUsageRecords ? snapshot.tokenEvents.count : 0
+            if appendTokenEvent(line: line, timestamp: timestamp, snapshot: &snapshot) {
+                if fallbackCount > 0 { snapshot.tokenEvents.removeFirst(fallbackCount) }
+                state.hasLegacyTokenUsage = true
+            }
+        } else if isUsageRecord,
+                  let usage = FastJSONValue.object(after: Array("\"usage\":{".utf8), in: line),
+                  let total = FastJSONValue.object(after: Array("\"thread_token_usage\":{".utf8), in: line) {
+            let responseID = FastJSONValue.string(after: Array("\"response_id\":\"".utf8), in: line)
+            if state.hasLegacyTokenUsage {
+                // Enrich the matching authoritative sample without appending a second
+                // token event. Older token_count records can omit cache-write tokens.
+                if let cacheWrite = FastJSONValue.int(after: FastJSONPattern.cacheWriteInputTokens, in: usage),
+                   cacheWrite > 0, let previous = snapshot.tokenEvents.last,
+                   previous.totalUsage.totalTokens == FastJSONValue.int(after: FastJSONPattern.totalTokens, in: total) {
+                    snapshot.tokenEvents[snapshot.tokenEvents.count - 1] = TokenEvent(
+                        timestamp: previous.timestamp,
+                        lastUsage: previous.lastUsage.withCacheWrite(cacheWrite),
+                        totalUsage: previous.totalUsage.withCacheWrite(
+                            FastJSONValue.int(after: FastJSONPattern.cacheWriteInputTokens, in: total)
+                                ?? previous.totalUsage.cacheWriteInputTokens),
+                        modelContextWindow: previous.modelContextWindow, rateLimits: previous.rateLimits)
+                }
+            } else if state.shouldCount("usage", id: responseID) {
+                state.hasUsageRecords = true
+                snapshot.tokenEvents.append(TokenEvent(timestamp: timestamp, lastUsage: tokenUsage(usage),
+                                                       totalUsage: tokenUsage(total), modelContextWindow: nil))
+            }
         }
 
         if isTurnContext {
@@ -1160,8 +1205,12 @@ private final class FastCodexJSONLParser {
         }
 
         if isToolCall {
-            snapshot.toolCallEvents += 1
+            classifyActivity(line: line, payloadType: payloadType, snapshot: &snapshot, state: &state)
             applyToolCall(line: line, snapshot: &snapshot, state: &state)
+        }
+        if let item = completedItem {
+            classifyActivity(line: item, payloadType: FastJSONValue.string(after: FastJSONPattern.type, in: item),
+                             snapshot: &snapshot, state: &state)
         }
 
         if isToolOutput {
@@ -1173,22 +1222,24 @@ private final class FastCodexJSONLParser {
             )
         }
 
+        let activityID = (isPatchEnd || isMCPToolCallEnd || isWebSearchEnd || isSubagentActivity)
+            ? FastJSONValue.string(after: FastJSONPattern.callID, in: line) : nil
         if isPatchEnd {
-            snapshot.patchEvents += 1
+            if state.shouldCount("patch", id: activityID) { snapshot.patchEvents += 1 }
             if FastJSONValue.bool(after: FastJSONPattern.success, in: line) == false {
-                snapshot.failedPatchEvents += 1
+                if state.shouldCount("patchFailure", id: activityID) { snapshot.failedPatchEvents += 1 }
             }
         }
 
-        if isMCPToolCallEnd {
+        if isMCPToolCallEnd, state.shouldCount("mcp", id: activityID) {
             snapshot.mcpToolCallEvents += 1
         }
 
-        if isWebSearchEnd {
+        if isWebSearchEnd, state.shouldCount("web", id: activityID) {
             snapshot.webSearchEvents += 1
         }
 
-        if isSubagentActivity {
+        if isSubagentActivity, state.shouldCount("agent", id: activityID) {
             snapshot.subagentActivityEvents += 1
         }
 
@@ -1213,6 +1264,38 @@ private final class FastCodexJSONLParser {
             return false
         }
         return payloadType.contains("call") && payloadType.contains("output") == false
+    }
+
+    private func classifyActivity(line: Data.SubSequence, payloadType: String?,
+                                  snapshot: inout SessionSnapshot, state: inout FastParserState) {
+        let name = FastJSONValue.string(after: FastJSONPattern.name, in: line) ?? ""
+        let namespace = FastJSONValue.string(after: Array("\"namespace\":\"".utf8), in: line) ?? ""
+        let id = FastJSONValue.string(after: FastJSONPattern.callID, in: line)
+            ?? FastJSONValue.string(after: Array("\"callId\":\"".utf8), in: line)
+            ?? FastJSONValue.string(after: FastJSONPattern.id, in: line)
+        let category: String
+        if name == "apply_patch" || ["fileChange", "file_change"].contains(payloadType ?? "") { category = "patch" }
+        else if name.hasPrefix("mcp__") || namespace.hasPrefix("mcp") || ["mcpToolCall", "mcp_tool_call"].contains(payloadType ?? "") { category = "mcp" }
+        else if ["web_search_call", "webSearch", "web_search"].contains(payloadType ?? "") || namespace == "web" { category = "web" }
+        else if namespace == "collaboration" || ["spawn_agent", "send_message", "wait_agent", "wait", "close_agent", "resume_agent", "collabAgentToolCall"].contains(name)
+            || payloadType == "collabAgentToolCall" { category = "agent" }
+        else if Self.isToolCallPayloadType(payloadType) { category = "tool" }
+        else { return }
+        if category == "patch",
+           FastJSONValue.string(after: Array("\"status\":\"".utf8), in: line) == "failed",
+           state.shouldCount("patchFailure", id: id) { snapshot.failedPatchEvents += 1 }
+        if state.shouldCount("tool", id: id) { snapshot.toolCallEvents += 1 }
+        guard category != "tool", state.shouldCount(category, id: id) else { return }
+        switch category {
+        case "patch": snapshot.patchEvents += 1
+        case "mcp": snapshot.mcpToolCallEvents += 1
+        case "web": snapshot.webSearchEvents += 1
+        case "agent": snapshot.subagentActivityEvents += 1
+        default: break
+        }
+        if category == "patch", let id, state.pendingPatchCallIDs.count < 256 {
+            state.pendingPatchCallIDs.insert(id)
+        }
     }
 
     private static func isToolOutputPayloadType(_ payloadType: String?) -> Bool {
@@ -1252,11 +1335,11 @@ private final class FastCodexJSONLParser {
         return value
     }
 
-    private func appendTokenEvent(line: Data.SubSequence, timestamp: Date?, snapshot: inout SessionSnapshot) {
+    private func appendTokenEvent(line: Data.SubSequence, timestamp: Date?, snapshot: inout SessionSnapshot) -> Bool {
         guard let last = FastJSONValue.object(after: FastJSONPattern.lastTokenUsage, in: line),
               let total = FastJSONValue.object(after: FastJSONPattern.totalTokenUsage, in: line)
         else {
-            return
+            return false
         }
 
         snapshot.tokenEvents.append(
@@ -1268,6 +1351,7 @@ private final class FastCodexJSONLParser {
                 rateLimits: rateLimits(line)
             )
         )
+        return true
     }
 
     private func applyTaskComplete(line: Data.SubSequence, snapshot: inout SessionSnapshot) {
@@ -1288,14 +1372,14 @@ private final class FastCodexJSONLParser {
     ) {
         let callID = FastJSONValue.string(after: FastJSONPattern.callID, in: line)
         if let callID {
-            if state.countedCommandCallIDs.insert(callID).inserted {
+            if state.shouldCount("command", id: callID) {
                 snapshot.commandEvents += 1
             }
         } else {
             snapshot.commandEvents += 1
         }
         if let exitCode = FastJSONValue.int(after: FastJSONPattern.exitCode, in: line),
-           exitCode != 0
+           exitCode != 0, state.shouldCount("commandFailure", id: callID)
         {
             recordCommandFailure(
                 exitCode: exitCode,
@@ -1314,16 +1398,18 @@ private final class FastCodexJSONLParser {
         state: inout FastParserState
     ) {
         guard let name = FastJSONValue.string(after: FastJSONPattern.name, in: line),
-              name == "exec" || name == "exec_command",
+              name == "exec_command" || (name == "exec" && FastJSONValue.commandPrefix(in: line) != nil),
               let callID = FastJSONValue.string(after: FastJSONPattern.callID, in: line)
         else {
             return
         }
 
-        if state.countedCommandCallIDs.insert(callID).inserted {
+        if state.shouldCount("command", id: callID) {
             snapshot.commandEvents += 1
         }
-        state.pendingCommandNames[callID] = commandLabel(for: name, in: line)
+        if state.pendingCommandNames.count < 256 {
+            state.pendingCommandNames[callID] = commandLabel(for: name, in: line)
+        }
     }
 
     private func applyToolOutput(
@@ -1332,6 +1418,13 @@ private final class FastCodexJSONLParser {
         snapshot: inout SessionSnapshot,
         state: inout FastParserState
     ) {
+        if let callID = FastJSONValue.string(after: FastJSONPattern.callID, in: line),
+           state.pendingPatchCallIDs.remove(callID) != nil,
+           let output = toolOutputText(line, payloadType: payloadType),
+           (output.hasPrefix("Error") || output.hasPrefix("Failed") || output.hasPrefix("apply_patch verification failed")),
+           state.shouldCount("patchFailure", id: callID) {
+            snapshot.failedPatchEvents += 1
+        }
         guard let callID = FastJSONValue.string(after: FastJSONPattern.callID, in: line),
               let commandName = state.pendingCommandNames.removeValue(forKey: callID),
               let output = toolOutputText(line, payloadType: payloadType)
@@ -1339,7 +1432,8 @@ private final class FastCodexJSONLParser {
             return
         }
 
-        guard let exitCode = commandExitCode(output), exitCode != 0 else {
+        guard let exitCode = commandExitCode(output), exitCode != 0,
+              state.shouldCount("commandFailure", id: callID) else {
             return
         }
         recordCommandFailure(
@@ -1463,6 +1557,7 @@ private final class FastCodexJSONLParser {
         TokenUsage(
             inputTokens: FastJSONValue.int(after: FastJSONPattern.inputTokens, in: object) ?? 0,
             cachedInputTokens: FastJSONValue.int(after: FastJSONPattern.cachedInputTokens, in: object) ?? 0,
+            cacheWriteInputTokens: FastJSONValue.int(after: FastJSONPattern.cacheWriteInputTokens, in: object) ?? 0,
             outputTokens: FastJSONValue.int(after: FastJSONPattern.outputTokens, in: object) ?? 0,
             reasoningOutputTokens: FastJSONValue.int(after: FastJSONPattern.reasoningOutputTokens, in: object) ?? 0,
             totalTokens: FastJSONValue.int(after: FastJSONPattern.totalTokens, in: object) ?? 0
@@ -1477,8 +1572,44 @@ private final class FastCodexJSONLParser {
 
 private struct FastParserState {
     var hasParsedSessionMetadata = false
+    var hasLegacyTokenUsage = false
+    var hasUsageRecords = false
+    private var activityIDs: [String: UInt16] = [:]
+    private var activityOrder: [String] = []
+    private var activityCursor = 0
+
+    mutating func shouldCount(_ category: String, id: String?) -> Bool {
+        guard let id else { return true }
+        let flag: UInt16
+        switch category {
+        case "tool": flag = 1
+        case "patch": flag = 2
+        case "mcp": flag = 4
+        case "web": flag = 8
+        case "agent": flag = 16
+        case "usage": flag = 32
+        case "command": flag = 64
+        case "commandFailure": flag = 128
+        case "patchFailure": flag = 256
+        default: return true
+        }
+        if let flags = activityIDs[id] {
+            guard flags & flag == 0 else { return false }
+            activityIDs[id] = flags | flag
+            return true
+        }
+        // A bounded recent-ID window survives append checkpoints without retaining logs.
+        if activityOrder.count < 2_048 { activityOrder.append(id) }
+        else {
+            activityIDs.removeValue(forKey: activityOrder[activityCursor])
+            activityOrder[activityCursor] = id
+            activityCursor = (activityCursor + 1) % 2_048
+        }
+        activityIDs[id] = flag
+        return true
+    }
     var pendingCommandNames: [String: String] = [:]
-    var countedCommandCallIDs: Set<String> = []
+    var pendingPatchCallIDs: Set<String> = []
     private var lastCompactionTimestamp: Date?
 
     mutating func shouldCountCompaction(at timestamp: Date?) -> Bool {
@@ -1496,6 +1627,34 @@ private struct FastParserState {
 }
 
 private enum FastJSONValue {
+    /// Locate only a direct member, skipping quoted strings and nested containers.
+    /// Works for reordered envelopes without decoding or retaining their payloads.
+    static func rootString(_ key: String, in bytes: Data.SubSequence) -> String? {
+        var index = bytes.startIndex
+        var depth = 0
+        // object(after:) returns the contents without the opening brace.
+        let rootDepth = bytes.first == 123 ? 1 : 0
+        while index < bytes.endIndex {
+            let byte = bytes[index]
+            if byte == 34 {
+                let start = index + 1
+                guard let end = skipString(startingAt: start, in: bytes) else { return nil }
+                if depth == rootDepth, jsonString(startingAt: start, in: bytes) == key {
+                    var value = end
+                    while value < bytes.endIndex, [UInt8(32), 9, 13, 10, 58].contains(bytes[value]) { value += 1 }
+                    if value < bytes.endIndex, bytes[value] == 34 {
+                        return jsonString(startingAt: value + 1, in: bytes)
+                    }
+                }
+                index = end
+                continue
+            }
+            if byte == 123 || byte == 91 { depth += 1 }
+            if byte == 125 || byte == 93 { depth -= 1 }
+            index += 1
+        }
+        return nil
+    }
     static func string(after pattern: [UInt8], in bytes: Data.SubSequence) -> String? {
         guard let range = range(of: pattern, in: bytes) else {
             return nil
@@ -2018,6 +2177,7 @@ private enum FastJSONValue {
 }
 
 private enum FastJSONPattern {
+    static let cacheWriteInputTokens = Array("\"cache_write_input_tokens\":".utf8)
     static let lineFeed: UInt8 = 10
     static let space: UInt8 = 32
     static let quote: UInt8 = 34

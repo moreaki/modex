@@ -11,6 +11,7 @@ public struct ModexMonitorConfiguration: Equatable, Sendable {
     public let scanCacheEnabled: Bool
     public let accountRateLimitsExecutablePath: String
     public let accountRateLimitsTimeoutSeconds: Int
+    public let fetchAccountRateLimits: Bool
 
     public init(
         codexHome: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex"),
@@ -19,7 +20,8 @@ public struct ModexMonitorConfiguration: Equatable, Sendable {
         scannerConfiguration: CodexSessionScannerConfiguration = .default,
         scanCacheEnabled: Bool = true,
         accountRateLimitsExecutablePath: String = "codex",
-        accountRateLimitsTimeoutSeconds: Int = 5
+        accountRateLimitsTimeoutSeconds: Int = 5,
+        fetchAccountRateLimits: Bool = true
     ) {
         self.codexHome = codexHome
         self.scanLimit = scanLimit
@@ -29,6 +31,7 @@ public struct ModexMonitorConfiguration: Equatable, Sendable {
         let executablePath = accountRateLimitsExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
         self.accountRateLimitsExecutablePath = executablePath.isEmpty ? "codex" : executablePath
         self.accountRateLimitsTimeoutSeconds = min(max(accountRateLimitsTimeoutSeconds, 1), 15)
+        self.fetchAccountRateLimits = fetchAccountRateLimits
     }
 }
 
@@ -42,9 +45,12 @@ public actor ModexMonitor {
     private var latestSummary: ModexSummary?
     private var refreshTask: Task<ModexRefreshResult, Never>?
     private let scanCache = CodexSessionScanCache()
+    private let accountClient: LocalCodexAppServerClient
 
-    public init(configuration: ModexMonitorConfiguration = ModexMonitorConfiguration()) {
+    public init(configuration: ModexMonitorConfiguration = ModexMonitorConfiguration(),
+                accountClient: LocalCodexAppServerClient = LocalCodexAppServerClient()) {
         self.configuration = configuration
+        self.accountClient = accountClient
     }
 
     public func cachedSummary() -> ModexSummary? {
@@ -73,13 +79,15 @@ public actor ModexMonitor {
 
         let configuration = configuration
         let scanCache = scanCache
+        let accountClient = accountClient
         let task = Task.detached(priority: .userInitiated) { () -> ModexRefreshResult in
             do {
-                async let accountRateLimits = try? LocalCodexAccountRateLimitService(
+                async let accountRateLimits = configuration.fetchAccountRateLimits ? try? LocalCodexAccountRateLimitService(
                     executablePath: configuration.accountRateLimitsExecutablePath,
-                    timeoutSeconds: configuration.accountRateLimitsTimeoutSeconds
+                    timeoutSeconds: configuration.accountRateLimitsTimeoutSeconds,
+                    client: accountClient
                 )
-                    .fetchGeneralAccountLimits()
+                    .fetchAccountLimits() : nil
                 let scanResult = try await CodexSessionScanner(
                     codexHome: configuration.codexHome,
                     configuration: configuration.scannerConfiguration
@@ -103,8 +111,9 @@ public actor ModexMonitor {
                 let summary = ModexSummary(
                     sessions: scanResult.sessions,
                     scanMetrics: scanResult.metrics,
-                    accountRateLimits: await accountRateLimits?.rateLimits,
-                    accountRateLimitsObservedAt: await accountRateLimits?.observedAt
+                    accountRateLimits: await accountRateLimits?.generalLimits,
+                    accountRateLimitsObservedAt: Date(),
+                    accountMetadata: await accountRateLimits
                 )
                 return .success(summary)
             } catch {
@@ -137,11 +146,11 @@ public struct ModexOneShotCommand: Sendable {
     }
 
     public func report() async throws -> String {
-        async let accountRateLimits = try? LocalCodexAccountRateLimitService(
+        async let accountRateLimits = configuration.fetchAccountRateLimits ? try? LocalCodexAccountRateLimitService(
             executablePath: configuration.accountRateLimitsExecutablePath,
             timeoutSeconds: configuration.accountRateLimitsTimeoutSeconds
         )
-            .fetchGeneralAccountLimits()
+            .fetchAccountLimits() : nil
         let summary = try await CodexSessionScanner(
             codexHome: configuration.codexHome,
             configuration: configuration.scannerConfiguration
@@ -151,8 +160,9 @@ public struct ModexOneShotCommand: Sendable {
             for: ModexSummary(
                 sessions: summary.sessions,
                 scanMetrics: summary.metrics,
-                accountRateLimits: await accountRateLimits?.rateLimits,
-                accountRateLimitsObservedAt: await accountRateLimits?.observedAt
+                accountRateLimits: await accountRateLimits?.generalLimits,
+                accountRateLimitsObservedAt: Date(),
+                accountMetadata: await accountRateLimits
             )
         )
     }
@@ -241,6 +251,21 @@ public struct ModexSummaryReportFormatter: Sendable {
             lines.append("highest context left: unknown")
         }
 
+        if let account = summary.accountMetadata {
+            // Protocol field labels keep CLI output stable and unambiguous.
+            lines.append("account.ordinaryUsageAllowed: \(account.ordinaryUsageAllowed.map(String.init) ?? "null")")
+            if let credits = account.rateLimitResetCredits?.availableCount {
+                lines.append("account.rateLimitResetCredits.availableCount: \(credits)")
+            }
+            for (id, bucket) in (account.rateLimitsByLimitId ?? [:]).sorted(by: { $0.key < $1.key }) {
+                if let reached = bucket.spendControlReached {
+                    lines.append("account.\(id).spendControlReached: \(reached)")
+                }
+                if let used = bucket.individualLimit?.used, let limit = bucket.individualLimit?.limit {
+                    lines.append("account.\(id).individualLimit.used/limit: \(used)/\(limit)")
+                }
+            }
+        }
         if let rateLimits = summary.latestRateLimits {
             if let primary = rateLimits.primary {
                 lines.append(limitLine(title: rateLimitTitle(primary, fallback: "latest primary limit left"), window: primary))

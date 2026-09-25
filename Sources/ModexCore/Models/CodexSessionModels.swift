@@ -3,6 +3,7 @@ import Foundation
 public struct TokenUsage: Equatable, Sendable {
     public let inputTokens: Int
     public let cachedInputTokens: Int
+    public let cacheWriteInputTokens: Int
     public let outputTokens: Int
     public let reasoningOutputTokens: Int
     public let totalTokens: Int
@@ -10,15 +11,23 @@ public struct TokenUsage: Equatable, Sendable {
     public init(
         inputTokens: Int = 0,
         cachedInputTokens: Int = 0,
+        cacheWriteInputTokens: Int = 0,
         outputTokens: Int = 0,
         reasoningOutputTokens: Int = 0,
         totalTokens: Int = 0
     ) {
         self.inputTokens = inputTokens
         self.cachedInputTokens = cachedInputTokens
+        self.cacheWriteInputTokens = cacheWriteInputTokens
         self.outputTokens = outputTokens
         self.reasoningOutputTokens = reasoningOutputTokens
         self.totalTokens = totalTokens
+    }
+
+    func withCacheWrite(_ tokens: Int) -> Self {
+        Self(inputTokens: inputTokens, cachedInputTokens: cachedInputTokens,
+             cacheWriteInputTokens: tokens, outputTokens: outputTokens,
+             reasoningOutputTokens: reasoningOutputTokens, totalTokens: totalTokens)
     }
 }
 
@@ -150,6 +159,11 @@ public struct SessionSnapshot: Equatable, Sendable {
     public var parentThreadID: String?
     public var threadSource: String?
     public var threadScope: CodexThreadScope?
+    public var projectID: String?
+    public var originator: String?
+    public var historyMode: String?
+    public var isPinned = false
+    public var runtimeStatus: CodexThreadRuntimeStatus?
     public var isArchived: Bool
     public var startedAt: Date?
     public var updatedAt: Date?
@@ -216,9 +230,8 @@ public struct SessionSnapshot: Equatable, Sendable {
     }
 
     public var isSubagent: Bool {
-        if let threadSource,
-           threadSource.caseInsensitiveCompare("subagent") == .orderedSame
-        {
+        if source?.lowercased().hasPrefix("subagent") == true
+            || ["subagent", "guardian_review"].contains(threadSource?.lowercased() ?? "") {
             return true
         }
         return parentThreadID?.isEmpty == false
@@ -366,7 +379,7 @@ public struct SessionSnapshot: Equatable, Sendable {
 }
 
 public struct ModexSummary: Equatable, Sendable {
-    public let sessions: [SessionSnapshot]
+    public private(set) var sessions: [SessionSnapshot]
     public let scanMetrics: ScanMetrics?
     public let sessionsScanned: Int
     public let tokenEvents: Int
@@ -378,23 +391,43 @@ public struct ModexSummary: Equatable, Sendable {
     public let contextUsagePercent: Double?
     public let contextLeftPercent: Double?
     /// Newest general Codex account limit, excluding named model-specific pools.
-    public let latestRateLimits: CodexRateLimits?
-    public let latestRateLimitsObservedAt: Date?
+    public private(set) var latestRateLimits: CodexRateLimits?
+    public private(set) var latestRateLimitsObservedAt: Date?
+    public private(set) var accountMetadata: CodexAccountLimits?
     public let latestSession: SessionSnapshot?
     public let contextSession: SessionSnapshot?
-    public let topLevelThreads: [SessionSnapshot]
+    public private(set) var topLevelThreads: [SessionSnapshot]
     public let subagentCount: Int
 
     public var topLevelThreadCount: Int {
         topLevelThreads.count
     }
 
+    /// Metadata notifications do not reparse files or recalculate token distributions.
+    public func enriched(with metadata: CodexMetadataSnapshot) -> Self {
+        var result = self
+        result.accountMetadata = metadata.limits
+        if let limits = metadata.limits?.generalLimits {
+            result.latestRateLimits = limits
+            result.latestRateLimitsObservedAt = metadata.limitsObservedAt
+        }
+        result.sessions = sessions.map { session in
+            guard let id = session.sessionID, let thread = metadata.threads[id] else { return session }
+            let fresh = metadata.threadsObservedAt.map { Date().timeIntervalSince($0) < 120 } ?? false
+            return thread.enriching(session, live: metadata.connected && fresh)
+        }
+        result.topLevelThreads = CodexThreadFamilyBuilder.build(from: result.sessions).map(\.representative)
+        return result
+    }
+
     public init(
         sessions: [SessionSnapshot],
         scanMetrics: ScanMetrics? = nil,
         accountRateLimits: CodexRateLimits? = nil,
-        accountRateLimitsObservedAt: Date? = nil
+        accountRateLimitsObservedAt: Date? = nil,
+        accountMetadata: CodexAccountLimits? = nil
     ) {
+        self.accountMetadata = accountMetadata
         self.sessions = sessions.sorted {
             ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
         }

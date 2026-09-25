@@ -9,6 +9,9 @@ final class ModexApplicationController: ObservableObject {
     private let settingsStore: ModexSettingsStore
     private let intelligenceConnectionStore: ModexIntelligenceConnectionStore
     private let monitor: ModexMonitor
+    private let metadataService = LocalCodexMetadataService()
+    private var metadataTask: Task<Void, Never>?
+    private var metadataRefreshTask: Task<Void, Never>?
     private let historyStore: ModexHistoryStore?
     private let signalEngine = ModexSignalEngine()
     private let agentEvidenceBuilder = ModexAgentInsightEvidenceBuilder()
@@ -55,6 +58,8 @@ final class ModexApplicationController: ObservableObject {
     }
 
     deinit {
+        metadataTask?.cancel()
+        metadataRefreshTask?.cancel()
         refreshTask?.cancel()
         refreshLoopTask?.cancel()
         historyTask?.cancel()
@@ -71,12 +76,21 @@ final class ModexApplicationController: ObservableObject {
             return
         }
         hasStarted = true
+        metadataTask = Task { [weak self, metadataService] in
+            let updates = await metadataService.updates()
+            for await metadata in updates {
+                guard let self else { return }
+                model.codexMetadata = metadata
+                if let latestSummary { model.summary = latestSummary.enriched(with: metadata) }
+            }
+        }
         discoverIntelligenceExecutables()
         refresh()
         scheduleRefreshLoop()
     }
 
     func refresh() {
+        refreshMetadata()
         guard refreshTask == nil else {
             return
         }
@@ -91,6 +105,18 @@ final class ModexApplicationController: ObservableObject {
                 await self?.receiveRefreshProgress(summary, configuration: configuration)
             }
             finishRefresh(result, configuration: configuration)
+        }
+    }
+
+    private func refreshMetadata() {
+        guard metadataRefreshTask == nil else { return }
+        let path = settings.intelligence.codexExecutablePath
+        let archived = settings.includeArchivedSessions
+        metadataRefreshTask = Task { [weak self, metadataService] in
+            await metadataService.refresh(executablePath: path, includeArchived: archived)
+            guard let self else { return }
+            metadataRefreshTask = nil
+            if path != settings.intelligence.codexExecutablePath { refreshMetadata() }
         }
     }
 
@@ -117,6 +143,9 @@ final class ModexApplicationController: ObservableObject {
         }
 
         if oldSettings.intelligence.codexExecutablePath != settings.intelligence.codexExecutablePath {
+            model.codexMetadata = CodexMetadataSnapshot()
+            metadataRefreshTask?.cancel()
+            refreshMetadata()
             if model.intelligenceExecutables.contains(where: {
                 $0.path == settings.intelligence.codexExecutablePath
             }) {
@@ -387,7 +416,10 @@ final class ModexApplicationController: ObservableObject {
     func quit() {
         refreshTask?.cancel()
         refreshLoopTask?.cancel()
-        Darwin.exit(0)
+        Task {
+            await LocalCodexAppServerClient.shared.shutdown()
+            Darwin.exit(0)
+        }
     }
 
     private func scheduleRefreshLoop() {
@@ -422,7 +454,7 @@ final class ModexApplicationController: ObservableObject {
                 latestSummary = summary
                 latestSummaryConfiguration = configuration
                 model.readFailureMessage = nil
-                model.summary = summary
+                model.summary = summary.enriched(with: model.codexMetadata)
                 model.insights = signalEngine.insights(
                     for: summary,
                     history: model.history,
@@ -453,7 +485,7 @@ final class ModexApplicationController: ObservableObject {
             return
         }
         model.readFailureMessage = nil
-        model.summary = mergedProgressSummary(summary, configuration: configuration)
+        model.summary = mergedProgressSummary(summary, configuration: configuration).enriched(with: model.codexMetadata)
     }
 
     private func mergedProgressSummary(

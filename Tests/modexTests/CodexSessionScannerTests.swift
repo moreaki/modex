@@ -245,7 +245,8 @@ import Testing
 
     let snapshot = try await LocalCodexAccountRateLimitService(
         executablePath: executableURL.path,
-        timeoutSeconds: 2
+        timeoutSeconds: 2,
+        client: LocalCodexAppServerClient()
     )
         .fetchGeneralAccountLimits()
 
@@ -1404,9 +1405,9 @@ import Testing
     let script = #"""
     #!/bin/sh
     IFS= read -r initialize
+    printf '%s\n' '{"id":1,"result":{"userAgent":"Codex Desktop/9.8.7 (macOS)","codexHome":"/tmp/.codex","platformFamily":"unix","platformOs":"macos"}}'
     IFS= read -r initialized
     IFS= read -r models
-    printf '%s\n' '{"id":1,"result":{"userAgent":"Codex Desktop/9.8.7 (macOS)","codexHome":"/tmp/.codex","platformFamily":"unix","platformOs":"macos"}}'
     printf '%s\n' '{"id":2,"result":{"data":[{"id":"dynamic-model","model":"dynamic-model","displayName":"Dynamic Model","description":"Reported by the CLI","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"Balanced"},{"reasoningEffort":"ultra","description":"Deep"}],"defaultReasoningEffort":"medium","serviceTiers":[{"id":"priority","name":"Fast","description":"Faster"}],"defaultServiceTier":null,"isDefault":true}],"nextCursor":null}}'
     """#
     try script.write(to: executableURL, atomically: true, encoding: .utf8)
@@ -1414,7 +1415,8 @@ import Testing
 
     let capabilities = try await LocalCodexCapabilityDiscoveryService(
         executablePath: executableURL.path,
-        timeoutSeconds: 2
+        timeoutSeconds: 2,
+        client: LocalCodexAppServerClient()
     ).discover()
 
     let model = try #require(capabilities.models.first)
@@ -1892,7 +1894,10 @@ private func writeMockCodexAppServer(
     let executableURL = directoryURL.appendingPathComponent("codex-mock")
     let script = """
     #!/bin/sh
+    IFS= read -r initialize
     printf '%s\\n' '{"id":1,"result":{"userAgent":"Codex Desktop/9.8.7 (macOS)","codexHome":"/tmp/.codex","platformFamily":"unix","platformOs":"macos"}}'
+    IFS= read -r initialized
+    IFS= read -r limits
     printf '%s\\n' '\(accountRateLimitsResponse)'
     """
     try script.write(to: executableURL, atomically: true, encoding: .utf8)

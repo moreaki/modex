@@ -17,6 +17,10 @@ struct CodexThreadMetadata: Sendable {
     let agentPath: String?
     let parentThreadID: String?
     let threadSource: String?
+    let projectID: String?
+    let originator: String?
+    let historyMode: String?
+    let isPinned: Bool
     let archived: Bool
     let recencyDate: Date
 }
@@ -124,7 +128,7 @@ enum CodexThreadIndex {
             \(schema.select("id")),
             \(schema.select("rollout_path")),
             \(schema.recencyExpression),
-            \(schema.select("title")),
+            COALESCE(NULLIF(\(schema.select("name")), ''), \(schema.select("title"))),
             \(schema.select("cwd")),
             \(schema.select("git_origin_url")),
             \(schema.select("model")),
@@ -137,7 +141,11 @@ enum CodexThreadIndex {
             \(schema.select("agent_path")),
             \(schema.select("parent_thread_id")),
             \(schema.select("thread_source")),
-            \(schema.archivedExpression)
+            \(schema.archivedExpression),
+            \(schema.select("project_id")),
+            \(schema.select("originator")),
+            \(schema.select("history_mode")),
+            \(schema.select("is_pinned"))
         FROM threads
         WHERE \(schema.select("rollout_path")) IS NOT NULL
           AND (?1 = 1 OR \(schema.archivedExpression) = 0)
@@ -184,6 +192,7 @@ enum CodexThreadIndex {
                         / (schema.recencyIsMilliseconds ? 1_000 : 1)
                 )
                 : modificationDate(fileURL)
+            let source = structuredSource(text(statement, at: 8))
             threads.append(
                 CodexThreadMetadata(
                     sessionID: sessionID,
@@ -193,14 +202,18 @@ enum CodexThreadIndex {
                     gitOriginURL: text(statement, at: 5),
                     model: text(statement, at: 6),
                     reasoningEffort: text(statement, at: 7),
-                    source: text(statement, at: 8),
+                    source: source.kind,
                     cliVersion: text(statement, at: 9),
                     modelProvider: text(statement, at: 10),
                     agentNickname: text(statement, at: 11),
                     agentRole: text(statement, at: 12),
                     agentPath: text(statement, at: 13),
-                    parentThreadID: text(statement, at: 14),
+                    parentThreadID: text(statement, at: 14) ?? source.parentID,
                     threadSource: text(statement, at: 15),
+                    projectID: text(statement, at: 17),
+                    originator: text(statement, at: 18),
+                    historyMode: text(statement, at: 19),
+                    isPinned: sqlite3_column_int(statement, 20) != 0,
                     archived: sqlite3_column_int(statement, 16) != 0,
                     recencyDate: recencyDate
                 )
@@ -208,6 +221,15 @@ enum CodexThreadIndex {
         }
 
         return threads
+    }
+
+    private static func structuredSource(_ raw: String?) -> (kind: String?, parentID: String?) {
+        guard let raw, raw.first == "{" else { return (raw, nil) }
+        guard raw.utf8.count <= 16_384,
+              let object = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any],
+              let subagent = object["subagent"] else { return (nil, nil) }
+        let spawn = (subagent as? [String: Any])?["thread_spawn"] as? [String: Any]
+        return ("subagent", spawn?["parent_thread_id"] as? String)
     }
 
     private static func text(_ statement: OpaquePointer, at index: Int32) -> String? {

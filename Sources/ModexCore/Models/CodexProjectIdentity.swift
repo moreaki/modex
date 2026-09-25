@@ -7,6 +7,7 @@ public enum CodexThreadScope: String, CaseIterable, Equatable, Hashable, Identif
     public var id: String { rawValue }
 
     public static func resolve(for session: SessionSnapshot) -> CodexThreadScope {
+        if session.projectID != nil { return .project }
         if let threadScope = session.threadScope {
             return threadScope
         }
@@ -36,6 +37,11 @@ public struct CodexProjectIdentity: Equatable, Hashable, Sendable {
     public let kind: Kind
 
     public static func resolve(for session: SessionSnapshot) -> CodexProjectIdentity {
+        if let projectID = session.projectID {
+            return CodexProjectIdentity(id: "project:\(projectID)",
+                                        suggestedName: session.workingDirectory.map { URL(fileURLWithPath: $0).lastPathComponent },
+                                        kind: .directory)
+        }
         if session.threadScope == .task {
             let taskScope = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
             return CodexProjectIdentity(

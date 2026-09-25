@@ -12,12 +12,23 @@ It reads local Codex data from `~/.codex`, uses Codex's read-only state index to
 - Separate seven-thread recent-activity views for Codex Project threads and standalone Task threads, while the complete eligible thread set progressively fills the detached detail window.
 - Per-thread context usage, model, reasoning effort, service tier, source, Codex version, speed, total tokens, median/average turn tokens, compaction count, and last update age when available.
 - Current activity metrics for command outcomes, patches, MCP calls, web searches, sub-agent activity, aborted turns, and changed files.
-- Persistent history-backed trend cards and sparklines for context pressure, token growth, scan health, turn size, duration, and failure activity.
+- Account availability, named limit pools, spend controls, and read-only reset-credit counts, with unknown and stale states kept explicit.
+- Service-reported lifetime/peak tokens and dated daily totals in the Tokens detail tab, separate from locally scanned thread totals. Redundant dashboard history cards and tiny table sparklines have been removed.
 - A detached detail-window Insights tab with deterministic, evidence-backed signals such as high context, failed commands, slow turns, repeated compactions, high cache reuse, slow scans, and cold cache behavior.
 - Calm hover details for full session/project/file information and exact token values.
 - On-demand instrumentation: last-read latency, memory footprint, lifetime peak memory, CPU time, wakeups, context switches, physical I/O, parser buffers, exact-cache hits, append reuse, actual one-hour totals, and per-scan averages over the last hour.
 
 Codex JSONL schemas are local implementation details, so Modex treats missing or changed fields as absent data and keeps parsing defensive.
+
+## Current Codex compatibility
+
+Modex shares one event-driven `app-server --stdio` connection between model discovery and account/thread metadata. There are no 25-ms polling loops or temporary output files. Read requests are bounded and cancellable, reconnects back off, and failures never block local scanning or menu presentation. Limits/thread metadata refresh at most once a minute; account analytics at most once every 15 minutes. Snapshots live only in memory, retain their observation times on failure, and are discarded on account/executable changes. No reset credits are redeemed and no daemon is installed or started.
+
+Live thread status describes only threads known to the connected server. A private stdio server normally reports desktop threads as `notLoaded`; Modex does **not** turn that into an idle claim. Canonical names, project IDs, pinning, originator, and history mode are read from the compatible local index, with safe metadata enrichment and existing fallbacks. Observed JSONL model/effort settings are not overwritten by server defaults.
+
+Modern response-item and completed-item activity is deduplicated by stable ID within a bounded 2,048-operation window. Code-mode wrappers without an observed command are not counted as shell commands. `token_usage_record` is a fallback when valid legacy token counts are absent; matching records can supply cache-write tokens without doubling totals. Deduplication/checkpoint state remains bounded and in-memory. No persistent format or user history is replaced.
+
+Model upgrade/retirement notices come from `model/list`, not a static catalog. Replacement requires an explicit choice and an advertised target; unavailable explicit selections remain visible. Streaks, ornamental graphs, and speculative cost estimates are intentionally not added to the monitoring dashboard.
 
 ## Requirements
 
@@ -94,7 +105,7 @@ Defaults:
 
 General settings cover refresh interval, archived-thread inclusion, scan cache enablement, cache flushing, and the Codex data folder. Appearance settings cover System/Black theme, language, and hover delay. Context settings tune the warning thresholds. Intelligence settings control optional Codex-assisted interpretation, model, reasoning effort, speed, local Codex executable, timeout, test connection, and generated-insight cache flushing. Expert settings tune parser concurrency and buffer sizes.
 
-The Intelligence settings section controls optional Codex-assisted narrative interpretation. Modex remains deterministic and local-first by default: facts, charts, sparklines, and reason-coded insights work without sending prompt text anywhere. It discovers Codex CLI installations from the command line, Homebrew, Codex.app, and ChatGPT.app, shows each source and version, and persists the selected absolute path; a custom path remains available. Modex asks that selected executable for `model/list` through `codex app-server`, so model names, supported reasoning efforts, defaults, and speed tiers reflect the chosen CLI instead of an app-maintained list. If Spark is unavailable, Modex falls back to the CLI's default model. When enabled, the Local Codex provider uses `codex exec --ephemeral` with a strict output schema and a compact metrics bundle. The connection test turns green only after a real structured insight response is validated.
+The Intelligence settings section controls optional Codex-assisted narrative interpretation. Modex remains deterministic and local-first by default: facts and reason-coded insights work without sending prompt text anywhere. It discovers Codex CLI installations from the command line, Homebrew, Codex.app, and ChatGPT.app, shows each source and version, and persists the selected absolute path; a custom path remains available. Modex asks that selected executable for `model/list` through `codex app-server`, so model names, supported reasoning efforts, defaults, and speed tiers reflect the chosen CLI instead of an app-maintained list. For a first-run default, Modex prefers advertised Spark, otherwise the CLI's default. Existing explicit model selections are preserved. When enabled, the Local Codex provider uses `codex exec --ephemeral` with a strict output schema and a compact metrics bundle. The connection test turns green only after a real structured insight response is validated.
 
 A successful Intelligence test stores a small verification receipt in `UserDefaults`: provider, executable path, model, reasoning effort, speed, and verification timestamp. Relaunching restores the verified state only when the active execution profile still matches that receipt. Changing any connection or execution setting requires a new test; failed verification invalidates the matching receipt.
 
@@ -166,4 +177,4 @@ Parser benchmarks live in `Benchmarks/ParserComparison`. They compare the curren
 
 The reusable design and measurement lessons behind discovery, bounded concurrency, streaming memory, progressive publication, exact and append-resume caching, native process counters, and historical resource averages are documented in [Fast Concurrent Scanner Architecture](docs/fast-concurrent-scanner-architecture.md).
 
-The next dashboard/detail-window direction is documented in `docs/dashboard-and-detail-window.md`, with a lightweight clickable prototype in `docs/prototypes/dashboard-detail-prototype.html`. The proposed history store, intelligence metrics, graph overview, and row sparklines are documented in `docs/history-intelligence-and-graphs.md`, with a graph prototype in `docs/prototypes/history-graphs-prototype.html`.
+Historical dashboard/detail prototypes live in `docs/dashboard-and-detail-window.md` and `docs/history-intelligence-and-graphs.md`. Their graph and sparkline proposals are superseded by the lean metadata presentation described above.

@@ -155,6 +155,9 @@ struct ModexIntelligenceSettings: Equatable, Sendable {
 
     func normalized(using capabilities: LocalCodexCapabilities) -> ModexIntelligenceSettings {
         var settings = normalized()
+        // Missing from a catalog does not mean retired. Preserve explicit choices.
+        if settings.model != Self.preferredModel,
+           !capabilities.models.contains(where: { $0.model == settings.model }) { return settings }
         guard let model = capabilities.models.first(where: { $0.model == settings.model })
             ?? capabilities.models.first(where: { $0.model == Self.preferredModel })
             ?? capabilities.models.first(where: \.isDefault)
@@ -281,7 +284,8 @@ struct ModexAppSettings: Equatable, Sendable {
             ),
             scanCacheEnabled: scanCacheEnabled,
             accountRateLimitsExecutablePath: intelligence.codexExecutablePath,
-            accountRateLimitsTimeoutSeconds: min(intelligence.timeoutSeconds, 15)
+            accountRateLimitsTimeoutSeconds: min(intelligence.timeoutSeconds, 15),
+            fetchAccountRateLimits: false
         )
     }
 
