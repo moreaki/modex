@@ -30,7 +30,9 @@ Live thread status describes only threads known to the connected server. A priva
 
 Modern response-item and completed-item activity is deduplicated by stable ID within a bounded 2,048-operation window. Code-mode wrappers without an observed command are not counted as shell commands. `token_usage_record` is a fallback when valid legacy token counts are absent; matching records can supply cache-write tokens without doubling totals. Deduplication/checkpoint state remains bounded and in-memory. No persistent format or user history is replaced.
 
-Model upgrade/retirement notices come from `model/list`, not a static catalog. Replacement requires an explicit choice and an advertised target; unavailable explicit selections remain visible. Streaks, ornamental graphs, and speculative cost estimates are intentionally not added to the monitoring dashboard.
+Model upgrade/retirement notices come from `model/list`, not a static catalog. Replacement requires an explicit choice and an advertised target; unavailable explicit selections, including Spark, remain visible. First-run selection still prefers advertised Spark, otherwise the CLI default. Longest-turn and streak statistics are tucked into a disclosure in Tokens detail, not the dashboard. Daily activity uses exact dated values; ornamental graphs and speculative cost estimates are omitted. The one-shot CLI reports the same account analytics and localized availability/credit terminology.
+
+Connection diagnostics distinguish disconnected, connecting, ready, limited-capability, and failed states. Process starts, connection attempts, reconnects, request latency, and timeouts are shown only on demand. These counters describe this launch, not energy consumption. A failed request does not cause replay or background retry loops.
 
 ## Requirements
 

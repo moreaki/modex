@@ -64,9 +64,19 @@ public struct CodexAccountLimits: Decodable, Equatable, Sendable {
         public var primary: Window?
         public var secondary: Window?
         public var rateLimitReachedType: String?
+        public var normalModelSlug: String?
         public var spendControlReached: Bool?
         public var individualLimit: SpendControl?
         public var credits: Credits?
+        public var reachedReasonKey: String? {
+            guard let rateLimitReachedType else { return nil }
+            switch rateLimitReachedType {
+            case "rate_limit_reached": return "account.quotaReached"
+            case "workspace_owner_credits_depleted", "workspace_member_credits_depleted": return "account.workspaceCreditsDepleted"
+            case "workspace_owner_usage_limit_reached", "workspace_member_usage_limit_reached": return "account.workspaceLimitReached"
+            default: return "account.limitReasonUnknown"
+            }
+        }
         public var value: CodexRateLimits {
             CodexRateLimits(primary: primary?.value, secondary: secondary?.value, limitID: limitId,
                            limitName: limitName, planType: planType, reachedType: rateLimitReachedType)
@@ -79,6 +89,7 @@ public struct CodexAccountLimits: Decodable, Equatable, Sendable {
             result.primary = update.primary ?? primary
             result.secondary = update.secondary ?? secondary
             result.rateLimitReachedType = update.rateLimitReachedType ?? rateLimitReachedType
+            result.normalModelSlug = update.normalModelSlug ?? normalModelSlug
             result.spendControlReached = update.spendControlReached ?? spendControlReached
             result.individualLimit = update.individualLimit ?? individualLimit
             result.credits = update.credits ?? credits

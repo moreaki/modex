@@ -404,7 +404,7 @@ public struct ModexSummary: Equatable, Sendable {
     }
 
     /// Metadata notifications do not reparse files or recalculate token distributions.
-    public func enriched(with metadata: CodexMetadataSnapshot) -> Self {
+    public func enriched(with metadata: CodexMetadataSnapshot, now: Date = Date()) -> Self {
         var result = self
         result.accountMetadata = metadata.limits
         if let limits = metadata.limits?.generalLimits {
@@ -413,7 +413,8 @@ public struct ModexSummary: Equatable, Sendable {
         }
         result.sessions = sessions.map { session in
             guard let id = session.sessionID, let thread = metadata.threads[id] else { return session }
-            let fresh = metadata.threadsObservedAt.map { Date().timeIntervalSince($0) < 120 } ?? false
+            let fresh = (metadata.threadStatusObservedAt[id] ?? metadata.threadsObservedAt)
+                .map { now.timeIntervalSince($0) < 120 } ?? false
             return thread.enriching(session, live: metadata.connected && fresh)
         }
         result.topLevelThreads = CodexThreadFamilyBuilder.build(from: result.sessions).map(\.representative)

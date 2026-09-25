@@ -49,6 +49,19 @@ public struct LocalCodexModelCapability: Decodable, Equatable, Sendable {
 
     public var upgradeTarget: String? { upgradeInfo?.model ?? upgrade }
 
+    /// Render remote copy as bounded plain text, never as executable Markdown/links.
+    public var migrationCopy: String? {
+        guard let copy = upgradeInfo?.upgradeCopy ?? upgradeInfo?.migrationMarkdown else { return nil }
+        let clean = String(copy.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) || $0 == "\n" })
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : String(clean.prefix(600))
+    }
+
+    public func upgradeDisplayName(in capabilities: LocalCodexCapabilities?) -> String? {
+        guard let target = upgradeTarget else { return nil }
+        return capabilities?.models.first { $0.model == target }?.displayName ?? target
+    }
+
     public init(
         id: String,
         model: String,

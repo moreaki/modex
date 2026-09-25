@@ -1,4 +1,45 @@
-# Current Codex compatibility — 0.1.7
+# Current Codex compatibility — 0.1.8
+
+## Acceptance completion — 0.1.8 (build 13)
+
+The follow-up audit found and repaired the remaining implementation gaps:
+
+| Issue | Completion evidence |
+|---|---|
+| #3 — account limits | Shared account model; localized CLI account report in all five languages; explicit blocked/unknown states; named quotas, workspace restriction reasons, spend controls, and read-only reset details. Unknown reason enums use generic localized copy. Promotional upsell payloads are intentionally not rendered. |
+| #4 — account analytics | Shared typed usage adapter and 15-minute coordinator TTL; lifetime/peak plus longest turn and both streak statistics, with the latter in a secondary disclosure. CLI includes all five statistics and real dated buckets. Nulls remain unavailable; failed refreshes retain the original dated snapshot and show stale status. Per-thread estimates are optional and not requested. |
+| #5 — modern rollouts | Completed `commandExecution`, `collabToolCall`, and `dynamicToolCall` records now supplement the existing modern/legacy classifier. Mixed command completion/failure records deduplicate by ID. Release benchmark below. |
+| #6 — shared transport | Explicit disconnected/connecting/ready/limited/failed lifecycle, separate attempt/reconnect/process counters, bounded framing and request routing, demand-only backoff, shutdown with in-flight requests, process-exit and reconnect coverage. Account changes also invalidate the UI model catalog. Stderr is discarded rather than retaining potentially sensitive content. |
+| #7 — model upgrades | Catalog display names, bounded plain-text migration help, explicit selection and target defaults. Saved Spark is no longer treated as a first-run fallback. Unchanged selections preserve receipts; actual model/effort/tier changes invalidate the matching identity. |
+| #8 — thread metadata | Local-first enrichment, structured source/parent fields, server model/effort only when local observations are absent, per-thread notification freshness, disconnect invalidation, partial-page retention, and newer notifications preserved across pagination. Runtime scope remains limited to the connected server, as described below. |
+
+The user's later lean-visualization requirement refines #4's initial chart proposal: exact dated daily values replace a graph; unrelated decorative graphs remain removed. No new dependency, AppKit bridge, account mutation, or background daemon is introduced.
+
+The additive `intelligenceModelSelectionVersion` preference records unresolved first-run defaults (0) versus resolved/saved choices (1). Startup migration `preserve-saved-model-selection`, introduced at the fixed version **0.1.8**, preserves pre-existing model preferences without switching models. Old-format fixtures verify data preservation and idempotent reopening. History/cache formats are unchanged.
+
+Automated verification: 59 tests pass, including all-locale account report coverage, old-setting migration, explicit-model/receipt behavior, all runtime states, notification identity/disconnect handling, partial pagination and status/name races, completed commands, process exit/reconnect, and shutdown with an outstanding request. Build, localization lint, cross-locale key order/placeholder checks, one-shot reporting, optimized packaging, and whitespace checks pass. The only long identical localized value is an intentional protocol-field formula.
+
+Final 0.1.8 menu-bar screenshots are pending the popup being opened. The UI inspection tool cannot attach to Modex while it has no visible window. Prior 0.1.7 screenshots below do not verify the new statistics disclosure or transport diagnostics. Issues remain open until this final visual verification is complete.
+
+### 0.1.7 → 0.1.8 scanner comparison
+
+Same generated 24-file / 117,210,446-byte corpus, four parsers, optimized builds, sequential runs with no concurrent build. Values are a single paired run, not a statistical power measurement.
+
+| Path | Before / after wall time | Before / after scan CPU | Before / after lifetime peak footprint |
+|---|---:|---:|---:|
+| Cold | 836.86 / 837.46 ms | 2.883 / 2.866 s | 43.8 / 41.7 MB |
+| Exact cache | 0.817 / 0.888 ms | 0.815 / 0.885 ms | 41.5 / 41.1 MB |
+| Append | 1.623 / 1.569 ms | 2.856 / 2.871 ms | 40.7 / 44.3 MB |
+
+Exact-cache reads were zero bytes; append reads were 3,360 bytes in both builds. Peak memory includes warmup. Cold latency differs by 0.07%; tiny cached timings and footprint differences are subject to run-to-run variation.
+
+| Path | Instructions before / after | Cycles before / after | Voluntary switches before / after | Involuntary switches before / after |
+|---|---:|---:|---:|---:|
+| Cold | 36.928B / 36.957B | 9.560B / 9.495B | 0 / 0 | 675 / 620 |
+| Exact | 36.934B / 36.965B | 9.477B / 9.532B | 0 / 0 | 682 / 690 |
+| Append | 36.942B / 36.979B | 9.484B / 9.475B | 0 / 0 | 685 / 624 |
+
+These `/usr/bin/time -l` counters cover the whole benchmark process, including the cold warmup for exact/append runs. No claim about watts or whole-app energy is made.
 
 ## Account overview follow-up — 0.1.7
 
@@ -21,7 +62,7 @@ Implements the core scope of issues #3–#8. Uses the installed CLI's generated 
 - Thread lists use state-database-only discovery, explicit source kinds, pagination, and separate active/archive queries. Partial pages never replace the last complete result. Transient status expires and is never inferred from rollout timestamps.
 - A private stdio server does not know the runtime state of desktop-owned threads. `notLoaded` and unknown statuses therefore make **no idle claim**. No compatible daemon control socket was present on this machine; Modex does not start one. This remains a protocol/runtime-scope limitation, not a fallback to guessed activity.
 - Canonical SQLite name/project/originator/history/pinning fields are optional; older schemas retain their existing fallbacks. Structured subagent source metadata supplies parent IDs. Neither `preview` nor `first_user_message` is read to label or rank rows.
-- Visible analytics are lifetime tokens, peak daily tokens, and exact dated daily buckets, separate from local totals. Streaks, decorative sparklines, speculative cost estimates, and redundant scan-health/dashboard history cards are omitted. Optional per-thread billing estimates are not requested.
+- Visible analytics are lifetime tokens, peak daily tokens, and exact dated daily buckets, separate from local totals. Longest-turn and streak statistics live in a secondary disclosure. Decorative sparklines, speculative cost estimates, and redundant scan-health/dashboard history cards are omitted. Optional per-thread billing estimates are not requested.
 - Model upgrades are user-selected, require an advertised target, and reset effort/speed through the existing supported-default path. Existing connection receipts consequently invalidate through their configuration identity. A missing explicit model stays visible rather than silently migrating.
 - Parser deduplication retains the most recent 2,048 operation IDs and category bits per file; pending command/patch results are capped at 256 each. Duplicate lifecycle records outside that bounded window cannot be guaranteed to deduplicate. State is carried in append checkpoints, never persisted as raw logs.
 - Valid legacy token counts remain authoritative. Usage-record-only logs are supported, null token-count notifications do not suppress fallback, and matching usage records enrich cache-write tokens without doubling totals. Unknown context stays unknown.
@@ -30,7 +71,7 @@ Implements the core scope of issues #3–#8. Uses the installed CLI's generated 
 
 The test suite includes old-schema history reopening, scanner priority/concurrency/cache behavior, current and mixed rollout activity, usage fallback, canonical index fields, sparse account merges, null/ordered analytics, model retirement metadata, runtime staleness rules, protocol initialization/concurrency/notifications, pagination/TTL, cancellation, malformed/oversized messages, executable replacement, backoff, and account startup announcements.
 
-The live installed CLI smoke check decoded account availability, 166 reported daily buckets, and 112 paginated thread summaries without a reconnect. A 3 MB valid-response regression test covers pipe backpressure independently of the oversized-message rejection test. CLI reports preserve authoritative `account.ordinaryUsageAllowed` and read-only reset-credit/spend metadata using protocol field labels.
+The initial live installed CLI smoke check decoded account availability, 166 reported daily buckets, and 112 paginated thread summaries without a reconnect. A 3 MB valid-response regression test covers pipe backpressure independently of the oversized-message rejection test. As of 0.1.8, CLI account reports use localized terminology rather than raw protocol field labels, retaining authoritative permission and unavailable values.
 
 Initial 0.1.6 verification on 2026-09-25: `swift build`, all 51 tests, `swift run modex --once`, release packaging, `git diff --check`, all five localization lints, and cross-locale key/placeholder checks passed. Initial screenshot coverage was System light; the additional account and theme checks completed with 0.1.7 are recorded above.
 

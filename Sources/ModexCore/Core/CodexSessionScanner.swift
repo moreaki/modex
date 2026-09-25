@@ -1210,7 +1210,7 @@ private final class FastCodexJSONLParser {
         }
         if let item = completedItem {
             classifyActivity(line: item, payloadType: FastJSONValue.string(after: FastJSONPattern.type, in: item),
-                             snapshot: &snapshot, state: &state)
+                             snapshot: &snapshot, state: &state, timestamp: timestamp)
         }
 
         if isToolOutput {
@@ -1267,26 +1267,34 @@ private final class FastCodexJSONLParser {
     }
 
     private func classifyActivity(line: Data.SubSequence, payloadType: String?,
-                                  snapshot: inout SessionSnapshot, state: inout FastParserState) {
+                                  snapshot: inout SessionSnapshot, state: inout FastParserState, timestamp: Date? = nil) {
         let name = FastJSONValue.string(after: FastJSONPattern.name, in: line) ?? ""
         let namespace = FastJSONValue.string(after: Array("\"namespace\":\"".utf8), in: line) ?? ""
         let id = FastJSONValue.string(after: FastJSONPattern.callID, in: line)
             ?? FastJSONValue.string(after: Array("\"callId\":\"".utf8), in: line)
             ?? FastJSONValue.string(after: FastJSONPattern.id, in: line)
         let category: String
-        if name == "apply_patch" || ["fileChange", "file_change"].contains(payloadType ?? "") { category = "patch" }
+        if payloadType == "commandExecution" { category = "command" }
+        else if name == "apply_patch" || ["fileChange", "file_change"].contains(payloadType ?? "") { category = "patch" }
         else if name.hasPrefix("mcp__") || namespace.hasPrefix("mcp") || ["mcpToolCall", "mcp_tool_call"].contains(payloadType ?? "") { category = "mcp" }
         else if ["web_search_call", "webSearch", "web_search"].contains(payloadType ?? "") || namespace == "web" { category = "web" }
         else if namespace == "collaboration" || ["spawn_agent", "send_message", "wait_agent", "wait", "close_agent", "resume_agent", "collabAgentToolCall"].contains(name)
-            || payloadType == "collabAgentToolCall" { category = "agent" }
-        else if Self.isToolCallPayloadType(payloadType) { category = "tool" }
+            || ["collabAgentToolCall", "collabToolCall"].contains(payloadType ?? "") { category = "agent" }
+        else if Self.isToolCallPayloadType(payloadType) || payloadType == "dynamicToolCall" { category = "tool" }
         else { return }
+        if category == "command", let exitCode = FastJSONValue.int(after: Array("\"exitCode\":".utf8), in: line),
+           exitCode != 0, state.shouldCount("commandFailure", id: id) {
+            recordCommandFailure(exitCode: exitCode,
+                commandName: sanitizedCommandName(FastJSONValue.stringPrefix(after: Array("\"command\":\"".utf8), in: line, maximumBytes: 256)),
+                timestamp: timestamp, snapshot: &snapshot)
+        }
         if category == "patch",
            FastJSONValue.string(after: Array("\"status\":\"".utf8), in: line) == "failed",
            state.shouldCount("patchFailure", id: id) { snapshot.failedPatchEvents += 1 }
         if state.shouldCount("tool", id: id) { snapshot.toolCallEvents += 1 }
         guard category != "tool", state.shouldCount(category, id: id) else { return }
         switch category {
+        case "command": snapshot.commandEvents += 1
         case "patch": snapshot.patchEvents += 1
         case "mcp": snapshot.mcpToolCallEvents += 1
         case "web": snapshot.webSearchEvents += 1

@@ -26,7 +26,7 @@ let package = Package(
         ),
         .testTarget(
             name: "modexTests",
-            dependencies: ["ModexCore"]
+            dependencies: ["ModexCore", "modex"]
         ),
     ],
     swiftLanguageModes: [.v6]

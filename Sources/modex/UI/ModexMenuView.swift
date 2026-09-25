@@ -3461,6 +3461,11 @@ private struct InstrumentationView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(palette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(ModexStrings.format("instrumentation.codexConnection",
+                    ModexStrings.text("transport.\(connectionMetrics.state.rawValue)"),
+                    connectionMetrics.connectionAttempts, connectionMetrics.reconnects))
+                    .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
+                    .help(ModexStrings.text("instrumentation.codexConnectionHelp"))
             }
 
             if let metrics {
@@ -4517,11 +4522,12 @@ private struct ConfigurationView: View {
                         ModexStrings.format("config.modelRetirement", Date(timeIntervalSince1970: Double($0)).formatted(date: .abbreviated, time: .omitted))
                     } ?? ModexStrings.text("config.modelUpgradeHelp")
                 ) {
-                    Button(ModexStrings.format("config.useModel", target)) {
+                    Button(ModexStrings.format("config.useModel", selected.upgradeDisplayName(in: intelligenceCapabilities) ?? target)) {
                         settings = settingsSelectingIntelligenceModel(target)
                     }
                     .disabled(intelligenceCapabilities?.models.contains { $0.model == target } != true)
                     .frame(width: 220)
+                    .help(selected.migrationCopy ?? ModexStrings.text("config.modelUpgradeHelp"))
                 }
             }
 
@@ -4973,10 +4979,9 @@ private struct ConfigurationView: View {
     }
 
     private func settingsSelectingIntelligenceModel(_ modelID: String) -> ModexAppSettings {
-        var next = updatedSettings(intelligenceModel: modelID)
+        var next = settings
         if let model = intelligenceCapabilities?.models.first(where: { $0.model == modelID }) {
-            next.intelligence.reasoningEffort = model.defaultReasoningEffort
-            next.intelligence.speed = model.defaultServiceTier ?? "default"
+            next.intelligence = next.intelligence.selecting(model)
         }
         return next
     }

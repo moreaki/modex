@@ -135,6 +135,7 @@ import Testing
     #expect(firstResult.appliedMigrationIDs == [
         "adopt-adaptive-read-concurrency",
         "normalize-legacy-preferences",
+        "preserve-saved-model-selection",
     ])
     #expect(defaults.object(forKey: ModexPersistedDefaultsKey.maximumConcurrentParses) == nil)
     #expect(defaults.object(forKey: ModexPersistedDefaultsKey.obsoleteScanLimit) == nil)

@@ -28,7 +28,9 @@ enum ModexMain {
 
     private static func printSummary(configuration: ModexMonitorConfiguration) async {
         do {
-            print(try await ModexOneShotCommand(configuration: configuration).report())
+            let labels = Dictionary(uniqueKeysWithValues: CodexAccountReportFormatter.localizationKeys.map { ($0, ModexStrings.text($0)) })
+            print(try await ModexOneShotCommand(configuration: configuration,
+                formatter: ModexSummaryReportFormatter(accountLabels: labels)).report())
         } catch {
             FileHandle.standardError.write(Data("modex: \(error)\n".utf8))
             Foundation.exit(1)

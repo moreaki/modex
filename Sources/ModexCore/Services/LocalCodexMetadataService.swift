@@ -24,6 +24,29 @@ public struct CodexThreadRuntimeMetadata: Decodable, Equatable, Sendable {
     public let isPinned: Bool?
     public var status: CodexThreadRuntimeStatus?
     public let updatedAt: Int?
+    public let createdAt: Int?
+    public let model: String?
+    public let reasoningEffort: String?
+    public let source: Source?
+    public struct Source: Decodable, Equatable, Sendable {
+        public let kind: String
+        public let parentThreadID: String?
+        private enum Key: String, CodingKey { case subAgent, custom, thread_spawn, parent_thread_id }
+        public init(from decoder: Decoder) throws {
+            if let value = try? decoder.singleValueContainer().decode(String.self) {
+                kind = value; parentThreadID = nil; return
+            }
+            let object = try decoder.container(keyedBy: Key.self)
+            if object.contains(.subAgent) {
+                kind = "subagent"
+                let subagent = try? object.nestedContainer(keyedBy: Key.self, forKey: .subAgent)
+                let spawn = try? subagent?.nestedContainer(keyedBy: Key.self, forKey: .thread_spawn)
+                parentThreadID = try? spawn?.decodeIfPresent(String.self, forKey: .parent_thread_id)
+            } else {
+                kind = "unknown"; parentThreadID = nil
+            }
+        }
+    }
     // Never decode preview or prompt content, nor replace observed turn model/effort.
     public func enriching(_ session: SessionSnapshot, live: Bool) -> SessionSnapshot {
         var result = session
@@ -33,7 +56,12 @@ public struct CodexThreadRuntimeMetadata: Decodable, Equatable, Sendable {
             result.originator = originator ?? result.originator
             result.historyMode = historyMode ?? result.historyMode
             result.isPinned = isPinned ?? result.isPinned
+            result.model = result.model ?? model
+            result.reasoningEffort = result.reasoningEffort ?? reasoningEffort
+            result.source = result.source ?? source?.kind
+            result.parentThreadID = result.parentThreadID ?? source?.parentThreadID
         }
+        if result.startedAt == nil { result.startedAt = createdAt.map { Date(timeIntervalSince1970: Double($0)) } }
         result.runtimeStatus = live ? status : nil
         return result
     }
@@ -46,8 +74,10 @@ public struct CodexMetadataSnapshot: Equatable, Sendable {
     public var usageObservedAt: Date?
     public var threads: [String: CodexThreadRuntimeMetadata] = [:]
     public var threadsObservedAt: Date?
+    public var threadStatusObservedAt: [String: Date] = [:]
     public var connected = false
     public var refreshFailed = false
+    public var usageRefreshFailed = false
     public init() {}
 }
 
@@ -121,22 +151,45 @@ public actor LocalCodexMetadataService {
         guard !Task.isCancelled, revision == requestRevision else { return }
         if now.timeIntervalSince(lastUsageAttempt) >= 900 {
             lastUsageAttempt = now
-            if let usage: CodexAccountUsage = try? await client.request("account/usage/read", executablePath: executablePath),
-               revision == requestRevision {
+            do {
+                let usage = try await LocalCodexAccountUsageService(executablePath: executablePath, client: client).fetch()
+                guard revision == requestRevision else { return }
                 snapshot.usage = usage
                 snapshot.usageObservedAt = now
+                snapshot.usageRefreshFailed = false
+                publish()
+            } catch {
+                guard revision == requestRevision else { return }
+                snapshot.usageRefreshFailed = true
                 publish()
             }
         }
         guard !Task.isCancelled, revision == requestRevision else { return }
         do {
+            let started = Date()
             let threads = try await readThreads(executablePath: executablePath, includeArchived: includeArchived)
             guard revision == requestRevision else { return }
-            snapshot.threads = threads
-            snapshot.threadsObservedAt = now
-            snapshot.connected = true
-            publish()
+            applyThreads(threads, readStartedAt: started, observedAt: now)
         } catch { /* Keep the last complete page set, never replace it with a partial list. */ }
+    }
+
+    func applyThreads(_ pageSet: [String: CodexThreadRuntimeMetadata], readStartedAt: Date, observedAt: Date) {
+        var threads = pageSet
+        // Preserve newer status notifications, but do not replace fresh durable
+        // fields from a completed list with an older cached name/project.
+        let recent = snapshot.threadStatusObservedAt.filter { $0.value >= readStartedAt }
+        for id in recent.keys {
+            guard let update = snapshot.threads[id] else { continue }
+            if var listed = threads[id], (listed.updatedAt ?? 0) >= (update.updatedAt ?? 0) {
+                listed.status = update.status
+                threads[id] = listed
+            } else { threads[id] = update }
+        }
+        snapshot.threads = threads
+        snapshot.threadStatusObservedAt = recent
+        snapshot.threadsObservedAt = observedAt
+        snapshot.connected = true
+        publish()
     }
 
     private func readThreads(executablePath: String, includeArchived: Bool) async throws -> [String: CodexThreadRuntimeMetadata] {
@@ -162,7 +215,7 @@ public actor LocalCodexMetadataService {
         return result
     }
 
-    private func receive(_ notification: LocalCodexAppServerClient.Notification) {
+    func receive(_ notification: LocalCodexAppServerClient.Notification) {
         switch notification.method {
         case "account/rateLimits/updated":
             guard let update = try? JSONDecoder().decode(CodexAccountLimits.self, from: notification.parameters) else { return }
@@ -174,6 +227,8 @@ public actor LocalCodexMetadataService {
             }
             snapshot.limits = snapshot.limits?.merging(update) ?? update
             snapshot.limitsObservedAt = Date()
+            snapshot.refreshFailed = false
+            snapshot.connected = true
         case "account/updated":
             // initialize announces the current auth mode before the first read.
             // There is no previous account data to invalidate in that case.
@@ -186,14 +241,17 @@ public actor LocalCodexMetadataService {
             struct Update: Decodable { let threadId: String; let status: CodexThreadRuntimeStatus }
             guard let update = try? JSONDecoder().decode(Update.self, from: notification.parameters) else { return }
             snapshot.threads[update.threadId]?.status = update.status
+            if snapshot.threads[update.threadId] != nil { snapshot.threadStatusObservedAt[update.threadId] = Date() }
         case "thread/started":
             struct Update: Decodable { let thread: CodexThreadRuntimeMetadata }
             guard let update = try? JSONDecoder().decode(Update.self, from: notification.parameters) else { return }
             snapshot.threads[update.thread.id] = update.thread
+            snapshot.threadStatusObservedAt[update.thread.id] = Date()
         case "thread/closed":
             struct Update: Decodable { let threadId: String }
             guard let update = try? JSONDecoder().decode(Update.self, from: notification.parameters) else { return }
             snapshot.threads[update.threadId]?.status = nil
+            if snapshot.threads[update.threadId] != nil { snapshot.threadStatusObservedAt[update.threadId] = Date() }
         case "modex/executableChanged":
             // First connection has no old identity-bound data. A replacement at
             // the same path must invalidate cached usage just like a new selection.
@@ -209,6 +267,7 @@ public actor LocalCodexMetadataService {
             lastUsageAttempt = .distantPast
         case "modex/disconnected":
             snapshot.connected = false
+            snapshot.refreshFailed = true
         default: return
         }
         publish()

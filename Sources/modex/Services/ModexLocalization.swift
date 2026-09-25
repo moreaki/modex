@@ -53,7 +53,7 @@ enum ModexStrings {
         return normalizedLanguageCode(value)
     }
 
-    private static func bundle(for languageCode: String) -> Bundle? {
+    static func bundle(for languageCode: String) -> Bundle? {
         guard let path = Bundle.module.path(forResource: languageCode, ofType: "lproj") else {
             return nil
         }

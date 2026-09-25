@@ -80,6 +80,15 @@ final class ModexApplicationController: ObservableObject {
             let updates = await metadataService.updates()
             for await metadata in updates {
                 guard let self else { return }
+                let previous = model.codexMetadata
+                if previous.limits != nil && (metadata.limits == nil
+                    || (previous.limits?.accountId != nil && metadata.limits?.accountId != nil
+                        && previous.limits?.accountId != metadata.limits?.accountId)) {
+                    // Catalog availability is account-specific too. Rediscover in
+                    // the background; never carry an old account's picker forward.
+                    model.intelligenceCapabilities = nil
+                    discoverIntelligenceCapabilities()
+                }
                 model.codexMetadata = metadata
                 if let latestSummary { model.summary = latestSummary.enriched(with: metadata) }
             }

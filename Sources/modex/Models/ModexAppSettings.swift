@@ -128,6 +128,8 @@ struct ModexIntelligenceSettings: Equatable, Sendable {
     var model: String
     var reasoningEffort: String
     var speed: String
+    // Version 0 is an unresolved first-run preference; version 1 is a saved choice.
+    var modelSelectionVersion: Int = 0
 
     static let `default` = ModexIntelligenceSettings(
         enabled: false,
@@ -149,14 +151,15 @@ struct ModexIntelligenceSettings: Equatable, Sendable {
             timeoutSeconds: min(max(timeoutSeconds, 5), 180),
             model: model,
             reasoningEffort: reasoningEffort,
-            speed: speed == "standard" ? "default" : speed
+            speed: speed == "standard" ? "default" : speed,
+            modelSelectionVersion: modelSelectionVersion
         )
     }
 
     func normalized(using capabilities: LocalCodexCapabilities) -> ModexIntelligenceSettings {
         var settings = normalized()
         // Missing from a catalog does not mean retired. Preserve explicit choices.
-        if settings.model != Self.preferredModel,
+        if settings.modelSelectionVersion > 0,
            !capabilities.models.contains(where: { $0.model == settings.model }) { return settings }
         guard let model = capabilities.models.first(where: { $0.model == settings.model })
             ?? capabilities.models.first(where: { $0.model == Self.preferredModel })
@@ -166,7 +169,13 @@ struct ModexIntelligenceSettings: Equatable, Sendable {
             return settings
         }
 
+        let resolvingFirstRun = settings.modelSelectionVersion == 0
         settings.model = model.model
+        settings.modelSelectionVersion = 1
+        if resolvingFirstRun && model.model != Self.preferredModel {
+            settings.reasoningEffort = model.defaultReasoningEffort
+            settings.speed = model.defaultServiceTier ?? "default"
+        }
         let efforts = Set(model.supportedReasoningEfforts.map(\.reasoningEffort))
         if efforts.contains(settings.reasoningEffort) == false {
             settings.reasoningEffort = model.defaultReasoningEffort
@@ -177,6 +186,16 @@ struct ModexIntelligenceSettings: Equatable, Sendable {
             settings.speed = model.defaultServiceTier ?? "default"
         }
         return settings
+    }
+
+    func selecting(_ model: LocalCodexModelCapability) -> Self {
+        var result = self
+        result.modelSelectionVersion = 1
+        guard model.model != self.model else { return result }
+        result.model = model.model
+        result.reasoningEffort = model.defaultReasoningEffort
+        result.speed = model.defaultServiceTier ?? "default"
+        return result.normalized()
     }
 
     var localCodexConfiguration: LocalCodexInsightConfiguration {
@@ -319,7 +338,8 @@ final class ModexSettingsStore {
         static let intelligenceProvider = "intelligenceProvider"
         static let intelligenceCodexExecutablePath = "intelligenceCodexExecutablePath"
         static let intelligenceTimeoutSeconds = "intelligenceTimeoutSeconds"
-        static let intelligenceModel = "intelligenceModel"
+        static let intelligenceModel = ModexPersistedDefaultsKey.intelligenceModel
+        static let intelligenceModelSelectionVersion = ModexPersistedDefaultsKey.intelligenceModelSelectionVersion
         static let intelligenceReasoningEffort = "intelligenceReasoningEffort"
         static let intelligenceSpeed = "intelligenceSpeed"
         static let sessionDetailHoverDelayMilliseconds = "sessionDetailHoverDelayMilliseconds"
@@ -394,7 +414,11 @@ final class ModexSettingsStore {
                 speed: string(
                     forKey: Key.intelligenceSpeed,
                     defaultValue: defaults.intelligence.speed
-                )
+                ),
+                // Existing persisted models are choices, including Spark. Do not
+                // reinterpret an old preference as a fresh-install fallback.
+                modelSelectionVersion: integer(forKey: Key.intelligenceModelSelectionVersion,
+                    defaultValue: self.defaults.object(forKey: Key.intelligenceModel) == nil ? 0 : 1)
             ),
             sessionDetailHoverDelayMilliseconds: integer(
                 forKey: Key.sessionDetailHoverDelayMilliseconds,
@@ -436,6 +460,7 @@ final class ModexSettingsStore {
         defaults.set(settings.intelligence.codexExecutablePath, forKey: Key.intelligenceCodexExecutablePath)
         defaults.set(settings.intelligence.timeoutSeconds, forKey: Key.intelligenceTimeoutSeconds)
         defaults.set(settings.intelligence.model, forKey: Key.intelligenceModel)
+        defaults.set(settings.intelligence.modelSelectionVersion, forKey: Key.intelligenceModelSelectionVersion)
         defaults.set(settings.intelligence.reasoningEffort, forKey: Key.intelligenceReasoningEffort)
         defaults.set(settings.intelligence.speed, forKey: Key.intelligenceSpeed)
         defaults.set(

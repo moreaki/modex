@@ -101,8 +101,8 @@ import Testing
     #expect(merged.generalLimits?.primary?.leftPercent == 95)
     let report = ModexSummaryReportFormatter().report(for: ModexSummary(
         sessions: [], accountRateLimits: merged.generalLimits, accountMetadata: merged))
-    #expect(report.contains("account.ordinaryUsageAllowed: false"))
-    #expect(report.contains("account.rateLimitResetCredits.availableCount: 2"))
+    #expect(report.contains("account.title: account.blocked"))
+    #expect(report.contains("account.usageResets: 2"))
     let switched = original.merging(try decoder.decode(CodexAccountLimits.self, from: Data(#"{"accountId":"b"}"#.utf8)))
     #expect(switched.ordinaryUsageAllowed == nil)
     #expect(switched.rateLimitResetCredits == nil)
@@ -134,9 +134,9 @@ import Testing
     #expect(account.rateLimitResetCredits?.availableDetails?.map(\.id) == ["first", "later"])
     #expect(account.rateLimitResetCredits?.availableCount == 3) // not derived from the capped rows
     let report = ModexSummaryReportFormatter().report(for: ModexSummary(sessions: [], accountMetadata: account))
-    #expect(report.contains("account.planType: pro"))
-    #expect(report.contains("account.credits.balance: 0"))
-    #expect(report.contains("account.rateLimitResetCredits[0].expiresAt:"))
+    #expect(report.contains("account.plan: account.plan.pro"))
+    #expect(report.contains("account.creditBalance: 0"))
+    #expect(report.contains("account.fullReset: 2026-09-10T00:26:40Z"))
     let same = try decoder.decode(CodexAccountLimits.self, from: Data(#"{"rateLimitResetCredits":{"availableCount":3,"credits":null}}"#.utf8))
     #expect(account.merging(same).rateLimitResetCredits?.credits?.count == 3)
     let changed = try decoder.decode(CodexAccountLimits.self, from: Data(#"{"rateLimitResetCredits":{"availableCount":2}}"#.utf8))
@@ -198,7 +198,12 @@ private struct EchoResponse: Decodable, Sendable { let value: Int }
               *'"method":"account/usage/read"'*) printf '{"id":%s,"result":{"summary":{"lifetimeTokens":123}}}\n' "$id" ;;
               *'"method":"thread/list"'*)
                 case "$line" in
-                  *'"cursor":"page2"'*) printf '{"id":%s,"result":{"data":[{"id":"b","name":"Second","status":{"type":"notLoaded"}}],"nextCursor":null}}\n' "$id" ;;
+                  *'"cursor":"page2"'*)
+                    if [ -f "$(dirname "$0")/partial" ]; then
+                      printf '{"id":%s,"error":{"code":-32601,"message":"Partial page failure"}}\n' "$id"
+                    else
+                      printf '{"id":%s,"result":{"data":[{"id":"b","name":"Second","status":{"type":"notLoaded"}}],"nextCursor":null}}\n' "$id"
+                    fi ;;
                   *) printf '{"id":%s,"result":{"data":[{"id":"a","name":"First","status":{"type":"notLoaded"}}],"nextCursor":"page2"}}\n' "$id" ;;
                 esac ;;
             esac
@@ -219,12 +224,18 @@ private struct EchoResponse: Decodable, Sendable { let value: Int }
     let requests = await client.diagnostics().requests
     await service.refresh(executablePath: executable.path, includeArchived: false, now: now.addingTimeInterval(10))
     #expect(await client.diagnostics().requests == requests)
+    try Data().write(to: root.appendingPathComponent("partial"))
+    await service.refresh(executablePath: executable.path, includeArchived: false, now: now.addingTimeInterval(61))
+    let partial = await service.cachedSnapshot()
+    #expect(partial.threads == first.threads)
+    #expect(partial.threadsObservedAt == first.threadsObservedAt)
     try Data().write(to: root.appendingPathComponent("fail"))
     await service.refresh(executablePath: executable.path, includeArchived: false, now: now.addingTimeInterval(901))
     let failed = await service.cachedSnapshot()
     #expect(failed.refreshFailed)
     #expect(failed.usage == first.usage)
     #expect(failed.usageObservedAt == first.usageObservedAt)
+    #expect(failed.usageRefreshFailed)
     #expect(failed.threads == first.threads)
     #expect(await client.diagnostics().processStarts == 1)
     await service.refresh(executablePath: root.appendingPathComponent("missing").path, includeArchived: false)
@@ -256,6 +267,7 @@ private struct EchoResponse: Decodable, Sendable { let value: Int }
           printf '"}}\n' ;;
         *'"method":"oversized"'*) head -c 4300000 /dev/zero | tr '\000' x ;;
         *'"method":"exit"'*) exit 0 ;;
+        *'"method":"limited"'*) printf '{"id":%s,"error":{"code":-32601,"message":"Unavailable"}}\n' "$id" ;;
       esac
     done
     """#
@@ -271,6 +283,12 @@ private struct EchoResponse: Decodable, Sendable { let value: Int }
     #expect(try await second.value == 42)
     #expect(await received.value)
     #expect(await client.diagnostics().processStarts == 1)
+    #expect(await client.diagnostics().connectionAttempts == 1)
+    #expect(await client.diagnostics().state == .ready)
+    await #expect(throws: LocalCodexAppServerError.remote(-32601, "Unavailable")) {
+        let _: EchoResponse = try await client.request("limited", executablePath: executable.path)
+    }
+    #expect(await client.diagnostics().state == .limited)
     let large: EchoResponse = try await client.request("large", executablePath: executable.path)
     #expect(large.value == 42)
     await #expect(throws: LocalCodexAppServerError.timedOut) {
@@ -297,5 +315,22 @@ private struct EchoResponse: Decodable, Sendable { let value: Int }
     await #expect(throws: LocalCodexAppServerError.disconnected) {
         let _: EchoResponse = try await client.request("oversized", executablePath: alternate.path)
     }
+    #expect(await client.diagnostics().state == .failed)
+    try await Task.sleep(for: .milliseconds(3100))
+    let reconnected: EchoResponse = try await client.request("echo", executablePath: alternate.path)
+    #expect(reconnected.value == 42)
+    #expect(await client.diagnostics().reconnects == 1)
+    #expect(await client.diagnostics().connectionAttempts == 3)
+    await #expect(throws: LocalCodexAppServerError.disconnected) {
+        let _: EchoResponse = try await client.request("exit", executablePath: alternate.path)
+    }
+    #expect(await client.diagnostics().state == .failed)
+    // Changing identity permits a fresh attempt; shutdown must finish every waiter.
+    let _: EchoResponse = try await client.request("echo", executablePath: executable.path)
+    let requests = await client.diagnostics().requests
+    let pending = Task { let _: EchoResponse = try await client.request("silent", executablePath: executable.path) }
+    while await client.diagnostics().requests == requests { await Task.yield() }
     await client.shutdown()
+    await #expect(throws: LocalCodexAppServerError.disconnected) { try await pending.value }
+    #expect(await client.diagnostics().state == .disconnected)
 }

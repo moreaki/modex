@@ -14,10 +14,16 @@ public actor LocalCodexAppServerClient {
         public let parameters: Data
     }
     public struct Diagnostics: Sendable {
+        public var state: ConnectionState = .disconnected
+        public var connectionAttempts = 0
+        public var reconnects = 0
         public var processStarts = 0
         public var requests = 0
         public var timeouts = 0
         public var lastRequestSeconds: Double = 0
+    }
+    public enum ConnectionState: String, Sendable {
+        case disconnected, connecting, ready, limited, failed
     }
     private struct Pending {
         let continuation: CheckedContinuation<Data, Error>
@@ -35,6 +41,7 @@ public actor LocalCodexAppServerClient {
     private var pending: [Int: Pending] = [:]
     private var subscribers: [UUID: AsyncStream<Notification>.Continuation] = [:]
     private var failures = 0
+    private var attemptedIdentity = false
     private var retryAfter = Date.distantPast
     private var metrics = Diagnostics()
     public private(set) var userAgent = "Codex"
@@ -58,10 +65,17 @@ public actor LocalCodexAppServerClient {
         _ method: String, parameters: Data = Data("{}".utf8),
         executablePath: String, timeoutSeconds: Int = 5, as: Response.Type = Response.self
     ) async throws -> Response {
+        try Task.checkCancellation()
         try await connect(executablePath: executablePath, timeoutSeconds: timeoutSeconds)
         guard executable == executablePath else { throw LocalCodexAppServerError.disconnected }
-        let data = try await send(method, parameters: parameters, timeoutSeconds: timeoutSeconds)
-        return try JSONDecoder().decode(Response.self, from: data)
+        do {
+            let data = try await send(method, parameters: parameters, timeoutSeconds: timeoutSeconds)
+            return try JSONDecoder().decode(Response.self, from: data)
+        } catch {
+            // A rejected/unsupported method limits capabilities, not the local scanner.
+            if case LocalCodexAppServerError.remote = error { metrics.state = .limited }
+            throw error
+        }
     }
 
     public func shutdown() {
@@ -79,11 +93,13 @@ public actor LocalCodexAppServerClient {
             entry.continuation.resume(throwing: LocalCodexAppServerError.disconnected)
         }
         pending.removeAll()
+        metrics.state = .disconnected
         emit(method: "modex/disconnected")
     }
 
     private func connectionFailed() {
         shutdown()
+        metrics.state = .failed
         failures = min(failures + 1, 6)
         retryAfter = Date().addingTimeInterval(min(60, pow(2, Double(failures))) + Double.random(in: 0...1))
     }
@@ -100,11 +116,16 @@ public actor LocalCodexAppServerClient {
             executable = executablePath
             executableIdentity = identity
             failures = 0
+            attemptedIdentity = false
             retryAfter = .distantPast
         }
         if let initialization { return try await initialization.value }
         if process?.isRunning == true { return }
         guard Date() >= retryAfter else { throw LocalCodexAppServerError.unavailable }
+        metrics.connectionAttempts += 1
+        if attemptedIdentity { metrics.reconnects += 1 }
+        attemptedIdentity = true
+        metrics.state = .connecting
         let connection = generation
         let task = Task { try await self.start(executablePath, timeoutSeconds: timeoutSeconds) }
         initialization = task
@@ -113,11 +134,10 @@ public actor LocalCodexAppServerClient {
             guard connection == generation else { throw LocalCodexAppServerError.disconnected }
             initialization = nil
             failures = 0
+            metrics.state = .ready
         } catch {
             guard connection == generation else { throw error }
-            shutdown()
-            failures = min(failures + 1, 6)
-            retryAfter = Date().addingTimeInterval(min(60, pow(2, Double(failures))) + Double.random(in: 0...1))
+            connectionFailed()
             throw error
         }
     }
@@ -143,7 +163,8 @@ public actor LocalCodexAppServerClient {
             try? stdout.fileHandleForReading.close()
         }
         Self.armRead(stdout.fileHandleForReading, continuation: continuation)
-        try process.run()
+        do { try process.run() }
+        catch { continuation.finish(); throw error }
         metrics.processStarts += 1
         self.process = process
         input = stdin.fileHandleForWriting

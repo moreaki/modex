@@ -146,33 +146,49 @@ public struct ModexOneShotCommand: Sendable {
     }
 
     public func report() async throws -> String {
-        async let accountRateLimits = configuration.fetchAccountRateLimits ? try? LocalCodexAccountRateLimitService(
-            executablePath: configuration.accountRateLimitsExecutablePath,
-            timeoutSeconds: configuration.accountRateLimitsTimeoutSeconds
-        )
-            .fetchAccountLimits() : nil
-        let summary = try await CodexSessionScanner(
-            codexHome: configuration.codexHome,
-            configuration: configuration.scannerConfiguration
-        )
-            .scanResult(limit: configuration.scanLimit)
-        return formatter.report(
-            for: ModexSummary(
-                sessions: summary.sessions,
-                scanMetrics: summary.metrics,
-                accountRateLimits: await accountRateLimits?.generalLimits,
-                accountRateLimitsObservedAt: Date(),
-                accountMetadata: await accountRateLimits
+        let client = LocalCodexAppServerClient()
+        do {
+            async let accountRateLimits = configuration.fetchAccountRateLimits ? try? LocalCodexAccountRateLimitService(
+                executablePath: configuration.accountRateLimitsExecutablePath,
+                timeoutSeconds: configuration.accountRateLimitsTimeoutSeconds,
+                client: client
+            ).fetchAccountLimits() : nil
+            async let usage: (CodexAccountUsage?, Date?) = {
+                guard configuration.fetchAccountRateLimits else { return (nil, nil) }
+                let usage = try? await LocalCodexAccountUsageService(
+                    executablePath: configuration.accountRateLimitsExecutablePath, client: client,
+                    timeoutSeconds: configuration.accountRateLimitsTimeoutSeconds).fetch()
+                return (usage, usage == nil ? nil : Date())
+            }()
+            let scan = try await CodexSessionScanner(
+                codexHome: configuration.codexHome,
+                configuration: configuration.scannerConfiguration
+            ).scanResult(limit: configuration.scanLimit)
+            let account = await accountRateLimits
+            let analytics = await usage
+            let report = formatter.report(
+                for: ModexSummary(sessions: scan.sessions, scanMetrics: scan.metrics,
+                    accountRateLimits: account?.generalLimits, accountRateLimitsObservedAt: Date(), accountMetadata: account),
+                accountUsage: analytics.0, accountUsageObservedAt: analytics.1
             )
-        )
+            await client.shutdown()
+            return report
+        } catch {
+            await client.shutdown()
+            throw error
+        }
     }
 }
 
 public struct ModexSummaryReportFormatter: Sendable {
-    public init() {}
+    private let accountFormatter: CodexAccountReportFormatter
+    public init(accountLabels: [String: String] = [:]) {
+        accountFormatter = CodexAccountReportFormatter(labels: accountLabels)
+    }
 
-    public func report(for summary: ModexSummary) -> String {
-        lines(for: summary).joined(separator: "\n")
+    public func report(for summary: ModexSummary, accountUsage: CodexAccountUsage? = nil, accountUsageObservedAt: Date? = nil) -> String {
+        (lines(for: summary) + accountFormatter.lines(limits: summary.accountMetadata,
+            usage: accountUsage, observedAt: accountUsageObservedAt)).joined(separator: "\n")
     }
 
     public func lines(for summary: ModexSummary) -> [String] {
@@ -251,28 +267,6 @@ public struct ModexSummaryReportFormatter: Sendable {
             lines.append("highest context left: unknown")
         }
 
-        if let account = summary.accountMetadata {
-            // Protocol field labels keep CLI output stable and unambiguous.
-            if let plan = account.generalBucket?.planType { lines.append("account.planType: \(plan)") }
-            if let balance = account.generalBucket?.credits?.balance { lines.append("account.credits.balance: \(balance)") }
-            lines.append("account.ordinaryUsageAllowed: \(account.ordinaryUsageAllowed.map(String.init) ?? "null")")
-            if let credits = account.rateLimitResetCredits?.availableCount {
-                lines.append("account.rateLimitResetCredits.availableCount: \(credits)")
-            }
-            for (index, credit) in (account.rateLimitResetCredits?.availableDetails ?? []).enumerated() {
-                let expiry = credit.expiresAt.map { resetFormatter.string(from: Date(timeIntervalSince1970: Double($0))) } ?? "null"
-                lines.append("account.rateLimitResetCredits[\(index)].resetType: \(credit.resetType)")
-                lines.append("account.rateLimitResetCredits[\(index)].expiresAt: \(expiry)")
-            }
-            for (id, bucket) in (account.rateLimitsByLimitId ?? [:]).sorted(by: { $0.key < $1.key }) {
-                if let reached = bucket.spendControlReached {
-                    lines.append("account.\(id).spendControlReached: \(reached)")
-                }
-                if let used = bucket.individualLimit?.used, let limit = bucket.individualLimit?.limit {
-                    lines.append("account.\(id).individualLimit.used/limit: \(used)/\(limit)")
-                }
-            }
-        }
         if let rateLimits = summary.latestRateLimits {
             if let primary = rateLimits.primary {
                 lines.append(limitLine(title: rateLimitTitle(primary, fallback: "latest primary limit left"), window: primary))

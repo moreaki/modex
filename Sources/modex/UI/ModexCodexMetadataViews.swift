@@ -48,6 +48,7 @@ struct CodexAccountMetadataView: View {
                                 .font(.subheadline.bold())
                             if let primary = bucket.primary { window(primary) }
                             if let secondary = bucket.secondary { window(secondary) }
+                            if let reason = bucket.reachedReasonKey { Text(ModexStrings.text(reason)) }
                             if let reached = bucket.spendControlReached {
                                 Text(ModexStrings.text(reached ? "account.spendReached" : "account.spendAvailable"))
                             }
@@ -174,6 +175,17 @@ struct CodexAccountUsageView: View {
             HStack(spacing: 24) {
                 metric("account.lifetime", metadata.usage?.summary?.lifetimeTokens)
                 metric("account.peakDaily", metadata.usage?.summary?.peakDailyTokens)
+            }
+            DisclosureGroup(ModexStrings.text("account.moreStatistics")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    metric("account.longestTurnSeconds", metadata.usage?.summary?.longestRunningTurnSec)
+                    metric("account.currentStreakDays", metadata.usage?.summary?.currentStreakDays)
+                    metric("account.longestStreakDays", metadata.usage?.summary?.longestStreakDays)
+                }.padding(.vertical, 6)
+            }.font(.system(size: 11))
+            if metadata.usageRefreshFailed {
+                Text(ModexStrings.text("account.usageStale"))
+                    .font(.system(size: 10)).foregroundStyle(palette.secondaryText)
             }
             // A dated, exact table is more useful here than an unlabeled micro-chart.
             if let days = metadata.usage?.recentDays, !days.isEmpty {

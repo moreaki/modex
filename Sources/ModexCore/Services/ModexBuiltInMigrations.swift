@@ -4,6 +4,8 @@ public enum ModexPersistedDefaultsKey {
     public static let maximumConcurrentParses = "maximumConcurrentParses"
     public static let obsoleteScanLimit = "scanLimit"
     public static let intelligenceSpeed = "intelligenceSpeed"
+    public static let intelligenceModel = "intelligenceModel"
+    public static let intelligenceModelSelectionVersion = "intelligenceModelSelectionVersion"
 }
 
 public enum ModexBuiltInMigrations {
@@ -42,6 +44,15 @@ public enum ModexBuiltInMigrations {
                         forKey: ModexPersistedDefaultsKey.intelligenceSpeed
                     )
                 }
+            },
+            ModexStartupMigration(
+                identifier: "preserve-saved-model-selection",
+                introducedIn: ModexApplicationVersion(major: 0, minor: 1, patch: 8)
+            ) { context in
+                let key = ModexPersistedDefaultsKey.intelligenceModelSelectionVersion
+                guard context.defaults.object(forKey: key) == nil else { return }
+                let hadModel = context.defaults.object(forKey: ModexPersistedDefaultsKey.intelligenceModel) != nil
+                context.defaults.set(hadModel ? 1 : 0, forKey: key)
             },
         ]
     }
