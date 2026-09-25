@@ -6,7 +6,7 @@ The Tokens view now separates lifetime tokens, the displayed-days subtotal, and 
 
 The reference screenshot's seven entries total **183,644,186**, below the reported lifetime **25,253,809,535**. A regression test covers that exact case, sparse dates, selection/order, missing versus zero totals, and overflow. No request, timer, scanner behavior, dependency, or persisted format changed. All 62 tests, build, one-shot reporting, optimized packaging, localization lint/key/placeholder checks, and whitespace checks pass.
 
-Packaged visual verification is pending opening the updated Tokens window.
+Packaged 0.1.9 screenshots were inspected in System light and dark: the three summary columns, exact daily strip, date-range explanation, and expanded duration/streak statistics are readable without clipping or overlap. The collapsed layout was also checked in System light. Accessibility exposes exact summary totals. macOS Light appearance and the expanded statistics were restored after verification. Black-theme verification remains pending access to the menu-bar Configuration control; the Thread Detail window does not expose it.
 
 ## Acceptance completion — 0.1.8 (build 13)
 
